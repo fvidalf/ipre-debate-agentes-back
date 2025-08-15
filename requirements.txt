@@ -1,2 +1,16 @@
 fastapi
 uvicorn[standard]
+
+# CPU-only PyTorch (via index-url at install time)
+torch
+torchvision
+torchaudio
+
+sentence-transformers
+peft
+transformers
+accelerate
+scikit-learn
+numpy
+python-dotenv
+dspy
