@@ -39,13 +39,41 @@ class Moderator:
         inter = np.array(self.interventions)[requested_ids]
         hands = np.array(self.hands_raised)[requested_ids]
         bias = (1 / np.array(self.bias))[requested_ids]
-        w = np.exp(hands - bias * inter)
-        self.weights = (w / (w.sum() + 1e-12)).tolist()
+        
+        # Clip exponent values to prevent overflow and ensure finite weights
+        exponents = hands - bias * inter
+        exponents = np.clip(exponents, -500, 500)  # Prevent overflow/underflow
+        w = np.exp(exponents)
+        
+        # Ensure weights are finite and positive
+        w = np.where(np.isfinite(w) & (w > 0), w, 1e-12)
+        w_sum = w.sum()
+        
+        # Handle edge case where all weights are zero or non-finite
+        if w_sum <= 0 or not np.isfinite(w_sum):
+            # Fall back to uniform weights
+            w = np.ones(len(w))
+            w_sum = w.sum()
+        
+        self.weights = (w / w_sum).tolist()
 
     def select_next_speaker(self) -> Optional[PoliAgent]:
         if not self._requests:
             return None
-        chosen = random.choices(self._requests, weights=self.weights, k=1)[0]
+        
+        # Additional safety check for weights
+        if not self.weights or len(self.weights) != len(self._requests):
+            # Fall back to uniform selection if weights are invalid
+            chosen = random.choice(self._requests)
+        else:
+            # Verify weights are finite and sum to something reasonable
+            weights_array = np.array(self.weights)
+            if not np.all(np.isfinite(weights_array)) or np.sum(weights_array) <= 0:
+                # Fall back to uniform selection
+                chosen = random.choice(self._requests)
+            else:
+                chosen = random.choices(self._requests, weights=self.weights, k=1)[0]
+        
         self.interventions[chosen.id] += 1
         return chosen
 

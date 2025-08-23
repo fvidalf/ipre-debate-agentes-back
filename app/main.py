@@ -6,11 +6,15 @@ os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "true"
 import multiprocessing
 multiprocessing.set_start_method('spawn', force=True)
 
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
+
 from contextlib import asynccontextmanager
 from typing import Dict, Tuple, List
 import uuid
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import dspy
 
 from app.api.routes_sim import router as sim_router
@@ -64,8 +68,12 @@ async def lifespan(app: FastAPI):
     # Load stance-aware SBERT exactly via your nlp.py
     sbert = load_stance_aware_sbert()
 
-    # Configure the LM like the notebook
-    lm = dspy.LM("openai/gpt-4o-mini")
+    # Configure the LM to use OpenRouter
+    lm = dspy.LM(
+        model="openai/gpt-4o-mini",
+        api_base="https://openrouter.ai/api/v1",
+        api_key=os.getenv("OPENROUTER_API_KEY")
+    )
     dspy.settings.configure(cache=False)
     dspy.configure(lm=lm)
 
@@ -90,6 +98,16 @@ async def lifespan(app: FastAPI):
         print(f"Warning: Error during cleanup: {e}")
 
 app = FastAPI(lifespan=lifespan)
+
+# Configure CORS to allow frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
+
 app.include_router(sim_router)
 
 @app.get("/healthz")
