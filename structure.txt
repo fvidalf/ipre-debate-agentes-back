@@ -1,0 +1,18 @@
+debate-backend/
+├─ .env
+├─ docker-compose.yml
+├─ app/
+│  ├─ main.py
+│  ├─ db.py
+│  ├─ models.py
+│  ├─ auth.py
+│  ├─ routers/
+│  │  ├─ health.py
+│  │  ├─ auth_routes.py
+│  │  └─ simulations.py  # stub for your existing API
+│  ├─ alembic.ini
+│  └─ alembic/
+│     ├─ env.py
+│     └─ versions/
+├─ requirements.txt
+└─ Dockerfile

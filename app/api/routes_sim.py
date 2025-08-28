@@ -22,6 +22,8 @@ def create_sim(req: CreateSimRequest, svc = Depends(get_service)):
         max_iters=req.max_iters,
         bias=req.bias,
         stance=req.stance,
+        embedding_model=req.embedding_model,
+        embedding_config=req.embedding_config or {},
     )
     return {"id": sim_id, "snapshot": svc.snapshot(sim_id)}
 

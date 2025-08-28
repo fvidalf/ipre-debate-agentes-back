@@ -8,6 +8,8 @@ class CreateSimRequest(BaseModel):
     max_iters: int = 21
     bias: Optional[List[float]] = None
     stance: str = ""
+    embedding_model: str = "openrouter"  # "openrouter" or "onnx_minilm"
+    embedding_config: Optional[dict] = None  # Additional config for the embedding model
 
 class StepResponse(BaseModel):
     iteration: int

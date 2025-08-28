@@ -1,0 +1,44 @@
+
+services:
+  db:
+    image: postgres:16
+    container_name: debate_agents_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ipre_user
+      POSTGRES_PASSWORD: ipre_password
+      POSTGRES_DB: ipre_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+  
+  api:
+    build:
+      context: .
+      args:
+        SETUP_ONNX: "true"  # Setup ONNX model during build for local inference
+    container_name: debate_api
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    volumes:
+      - hf_cache:/app/hf_cache
+      - ./onnx-model:/app/onnx-model:ro
+    command: bash -lc "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+volumes:
+  pgdata:
+  hf_cache:
+  onnx_models:  # Volume for persistent ONNX model storage

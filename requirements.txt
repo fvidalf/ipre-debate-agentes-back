@@ -1,16 +1,23 @@
-fastapi
-uvicorn[standard]
+# --- Web/API ---
+fastapi==0.112.2
+uvicorn[standard]==0.30.6
+sqlmodel==0.0.21
+psycopg[binary]==3.2.1
+alembic==1.13.2           # migrations (optional now, useful soon)
+pydantic==2.9.2
+python-multipart==0.0.9   # form/file uploads
+python-jose[cryptography]==3.3.0  # JWT
+passlib[bcrypt]==1.7.4    # password hashing
+httpx==0.27.2             # for calling out (optional; handy)
 
-# CPU-only PyTorch (via index-url at install time)
-torch
-torchvision
-torchaudio
-
-sentence-transformers
-peft
-transformers
-accelerate
-scikit-learn
+# --- Data/ML stack ---
 numpy
+scikit-learn
+# peft  # Removed - no longer needed for heavy SBERT
+# sentence-transformers  # Removed - no longer needed for heavy SBERT
+onnxruntime  # For local ONNX inference
+transformers  # For tokenizer and model handling
+
+# Utilities
 python-dotenv
 dspy

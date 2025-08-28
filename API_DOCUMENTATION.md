@@ -2,7 +2,16 @@
 
 ## Overview
 
-The Debate Agents API is a FastAPI-based backend service that orchestrates AI-powered debates between multiple agents. Each agent has unique profiles and backgrounds, and they engage in structured debates on specified topics using GPT-4o-mini for reasoning and stance-aware SBERT for semantic understanding.
+The Debate Agents API is a FastAPI-based backend service that orchestrates AI-powered debates between multiple agents. Each agent has unique profiles and backgrounds, and they engage in structured debates on specified topics using GPT-4o-mini for reasoning and configurable embedding models for semantic understanding.
+
+### Supported Embedding Models
+
+The API supports multiple embedding models for calculating sentence similarities:
+
+- **OpenRouter** (default): Uses OpenAI's text-embedding-3-small via OpenRouter API
+- **ONNX MiniLM**: Lightweight local inference using ONNX runtime
+
+For detailed setup instructions, see the [Embedding Models Documentation](docs/embedding-models.md).
 
 ## Base URL
 
@@ -53,7 +62,11 @@ Creates a new debate simulation with specified agents and topic.
   "agent_names": ["TechExec", "PrivacyAdvocate", "PolicyExpert"],
   "max_iters": 21,
   "bias": [0.1, 0.2, 0.15],
-  "stance": "pro-regulation"
+  "stance": "pro-regulation",
+  "embedding_model": "openrouter",
+  "embedding_config": {
+    "model_name": "openai/text-embedding-3-small"
+  }
 }
 ```
 
@@ -66,6 +79,8 @@ Creates a new debate simulation with specified agents and topic.
 - `max_iters` (integer, default: 21): Maximum number of debate iterations
 - `bias` (array of floats): Bias weights for each agent (must match agent count)
 - `stance` (string): Initial stance for the debate
+- `embedding_model` (string, default: "openrouter"): Embedding model type ("openrouter" or "onnx_minilm")
+- `embedding_config` (object): Additional configuration for the embedding model
 
 **Validation:**
 - `profiles` and `agent_names` arrays must have the same length

@@ -19,23 +19,29 @@ import dspy
 
 from app.api.routes_sim import router as sim_router
 from app.models.simulation import Simulation
-from app.models.nlp import load_stance_aware_sbert
+from app.models.nlp import create_sentence_embedder
+
 
 # --- minimal service baked into main.py (can be moved later) ---
 class SimulationService:
-    def __init__(self, sbert, lm):
-        self._sbert = sbert
+    def __init__(self, lm):
         self._lm = lm
         self._sims: Dict[str, Simulation] = {}
 
     def create_sim(self, topic: str, profiles: List[str], agent_names: List[str],
-                   max_iters: int, bias=None, stance: str = "") -> str:
+                   max_iters: int, bias=None, stance: str = "", 
+                   embedding_model: str = "openrouter", embedding_config: dict = None) -> str:
         sim_id = str(uuid.uuid4())
+        
+        # Create embedder based on configuration
+        embedder_config = embedding_config or {}
+        sbert = create_sentence_embedder(model_type=embedding_model, **embedder_config)
+        
         sim = Simulation(
             topic=topic,
             profiles=profiles,
             agent_names=agent_names,
-            sbert=self._sbert,   # pass the wrapper/encoder you loaded
+            sbert=sbert,   # pass the wrapper/encoder you loaded
             lm=self._lm,
             max_iters=max_iters,
             bias=bias,
@@ -65,9 +71,6 @@ class SimulationService:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load stance-aware SBERT exactly via your nlp.py
-    sbert = load_stance_aware_sbert()
-
     # Configure the LM to use OpenRouter
     lm = dspy.LM(
         model="openai/gpt-4o-mini",
@@ -77,17 +80,13 @@ async def lifespan(app: FastAPI):
     dspy.settings.configure(cache=False)
     dspy.configure(lm=lm)
 
-    # Expose a service for routers to use
-    app.state.sim_service = SimulationService(sbert=sbert, lm=lm)
+    # Expose a service for routers to use (embedder created per simulation)
+    app.state.sim_service = SimulationService(lm=lm)
     
     yield
     
-    # Cleanup on shutdown
+    # Cleanup on shutdown - embedders are cleaned up per simulation
     try:
-        # Clean up SBERT model resources
-        if hasattr(sbert, '_sbert') and sbert._sbert is not None:
-            del sbert._sbert
-        del sbert
         del lm
         app.state.sim_service = None
         
