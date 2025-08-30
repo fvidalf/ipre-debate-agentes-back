@@ -12,6 +12,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ipre_user -d ipre_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   adminer:
     image: adminer:4
@@ -19,7 +24,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
   
   api:
     build:
@@ -32,11 +38,19 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    environment:
+      HF_HOME: /app/hf_cache
+      TRANSFORMERS_CACHE: /app/hf_cache
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     volumes:
       - hf_cache:/app/hf_cache
       - ./onnx-model:/app/onnx-model:ro
-    command: bash -lc "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command: >
+      bash -lc "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
 
 volumes:
   pgdata:

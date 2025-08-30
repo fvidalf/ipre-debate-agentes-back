@@ -11,11 +11,11 @@ import sys
 if os.path.exists('/app/app'):
     # Docker context
     sys.path.insert(0, '/app')
-    from app.models.nlp import setup_onnx_model
+    from app.classes.nlp import setup_onnx_model
 else:
     # Local context
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from app.models.nlp import setup_onnx_model
+    from app.classes.nlp import setup_onnx_model
 
 
 def main():

@@ -16,7 +16,7 @@ def test_openrouter_embedder():
     print("Testing OpenRouter embedder...")
     
     try:
-        from app.models.nlp import create_sentence_embedder
+        from app.classes.nlp import create_sentence_embedder
         
         # Check if API key is available
         api_key = os.getenv("OPENROUTER_API_KEY")

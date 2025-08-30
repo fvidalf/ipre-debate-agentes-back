@@ -4,18 +4,28 @@ import dspy
 
 from .agents import PoliAgent
 from .moderator import Moderator
+from .model_config import create_agent_lm, DEFAULT_MODEL
 
 agents: List[PoliAgent] = []  # will be set by Simulation at start
+
+
+@dataclass
+class InternalAgentConfig:
+    """Configuration for a single agent (internal use)"""
+    name: str
+    profile: str
+    model_id: Optional[str] = None
 
 
 @dataclass
 class Simulation:
     # Inputs (same defaults/shape as notebook expectations)
     topic: str
-    profiles: List[str]               # list of politician backgrounds
-    agent_names: List[str]            # list of names (same length as profiles)
+    agent_configs: List[InternalAgentConfig]  # Updated to use internal agent configs
     sbert: Any                        # SentenceTransformer w/ PEFT, passed in
-    lm: dspy.LM                       # dspy LM (configured outside)
+    lm: dspy.LM                       # dspy LM (configured outside, used as fallback)
+    api_base: str                     # OpenRouter API base
+    api_key: str                      # OpenRouter API key
     max_iters: int = 21
     # Moderator config per notebook
     bias: Optional[List[float]] = None  # defaults to [1,1,...]
@@ -36,14 +46,32 @@ class Simulation:
 
     def _build_agents(self) -> List[PoliAgent]:
         objs: List[PoliAgent] = []
-        for idx, (name, profile) in enumerate(zip(self.agent_names, self.profiles)):
+        for idx, agent_config in enumerate(self.agent_configs):
+            # Create agent-specific model if specified
+            agent_model = None
+            if agent_config.model_id:
+                try:
+                    agent_model = create_agent_lm(
+                        model_id=agent_config.model_id,
+                        api_base=self.api_base,
+                        api_key=self.api_key
+                    )
+                except ValueError:
+                    # If model is invalid, fall back to default
+                    agent_model = create_agent_lm(
+                        model_id=DEFAULT_MODEL,
+                        api_base=self.api_base,
+                        api_key=self.api_key
+                    )
+            
             # 0-based ids so Moderator indexing works: 0..N-1
             a = PoliAgent(
                 agent_id=idx,
-                name=name,
-                background=profile,
+                name=agent_config.name,
+                background=agent_config.profile,
                 topic=self.topic,
-                sbert=self.sbert
+                sbert=self.sbert,
+                model=agent_model
             )
             objs.append(a)
         return objs

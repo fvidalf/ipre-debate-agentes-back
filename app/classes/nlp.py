@@ -39,14 +39,14 @@ class OpenRouterEncoder(BaseEncoder):
 
 
 class ONNXMiniLMEncoder(BaseEncoder):
-    """Local ONNX MiniLM encoder for lightweight inference"""
+    """ONNX-optimized sentence encoder for lightweight inference"""
     
     def __init__(self, model_dir: str = "./onnx-model"):
         try:
             import onnxruntime as ort
             from transformers import AutoTokenizer
         except ImportError:
-            raise ImportError("Please install onnxruntime, transformers, and optimum: pip install onnxruntime transformers optimum[onnxruntime]")
+            raise ImportError("Please install onnxruntime and transformers: pip install onnxruntime transformers")
         
         self.model_dir = model_dir
         self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
@@ -54,8 +54,6 @@ class ONNXMiniLMEncoder(BaseEncoder):
             os.path.join(model_dir, "model.onnx"),
             providers=["CPUExecutionProvider"]
         )
-        self.input_name = self.session.get_inputs()[0].name
-        self.output_name = self.session.get_outputs()[0].name
     
     def encode(self, sentences: Iterable[str]) -> np.ndarray:
         if isinstance(sentences, str):
@@ -68,12 +66,28 @@ class ONNXMiniLMEncoder(BaseEncoder):
             truncation=True, 
             max_length=256
         )
-        outputs = self.session.run(
-            [self.output_name], 
-            {self.input_name: enc["input_ids"]}
-        )[0]
         
-        return outputs.astype(np.float32)
+        # Prepare inputs for ONNX model - include all required inputs
+        input_feed = {}
+        for input_node in self.session.get_inputs():
+            input_name = input_node.name
+            if input_name in enc:
+                input_feed[input_name] = enc[input_name]
+        
+        # Run inference
+        outputs = self.session.run(None, input_feed)[0]
+        
+        # Apply mean pooling using attention mask
+        attention_mask = enc["attention_mask"]
+        
+        # Mean pooling: sum embeddings and divide by attention mask sum
+        masked_embeddings = outputs * np.expand_dims(attention_mask, axis=-1)
+        summed = np.sum(masked_embeddings, axis=1)
+        counts = np.sum(attention_mask, axis=1, keepdims=True)
+        counts = np.maximum(counts, 1)  # Avoid division by zero
+        
+        mean_pooled = summed / counts
+        return mean_pooled.astype(np.float32)
 
 
 class SentenceEmbedder:
@@ -153,7 +167,7 @@ def setup_onnx_model(
     Setup ONNX model for local inference (run this once to export the model)
     
     Args:
-        model_id: Hugging Face model ID to export
+        model_id: Sentence transformer model ID to export
         output_dir: Directory to save the ONNX model
     """
     try:
@@ -163,13 +177,17 @@ def setup_onnx_model(
         raise ImportError("Please install transformers and optimum: pip install transformers optimum[onnxruntime]")
     
     print(f"Exporting {model_id} to ONNX format...")
+    
+    # Export the model - this creates a lightweight ONNX version
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     onnx_model = ORTModelForFeatureExtraction.from_pretrained(model_id, export=True)
     
     os.makedirs(output_dir, exist_ok=True)
     onnx_model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
-    print(f"Model exported to {output_dir}")
+    
+    print(f"ONNX model exported to {output_dir}")
+    print("Note: This model requires mean pooling in the encode() method for sentence embeddings.")
 
 
 # Backward compatibility - create an alias

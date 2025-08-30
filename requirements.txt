@@ -13,8 +13,6 @@ httpx==0.27.2             # for calling out (optional; handy)
 # --- Data/ML stack ---
 numpy
 scikit-learn
-# peft  # Removed - no longer needed for heavy SBERT
-# sentence-transformers  # Removed - no longer needed for heavy SBERT
 onnxruntime  # For local ONNX inference
 transformers  # For tokenizer and model handling
 
