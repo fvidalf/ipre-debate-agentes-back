@@ -14,6 +14,8 @@ from typing import Dict, Tuple, List
 from uuid import UUID
 from datetime import datetime
 import asyncio
+import logging
+import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,8 +23,25 @@ import dspy
 from sqlmodel import Session, create_engine, SQLModel
 
 from app.api.routes_sim import router as sim_router
+from app.api.routes_agents import router as agents_router
+from app.api.routes_config_templates import router as config_templates_router
+from app.api.routes_configs import router as configs_router
 from app.services import SimulationService
 from app.models import User
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Set up specific loggers for different components
+logging.getLogger("app.api").setLevel(logging.DEBUG)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)  # Reduce SQL noise
 
 
 @asynccontextmanager
@@ -43,28 +62,11 @@ async def lifespan(app: FastAPI):
     dspy.configure(lm=lm)
 
     # Set up database connection
-    database_url = os.getenv("DATABASE_URL", "postgresql://ipre_user:ipre_password@localhost:5432/ipre_db")
+    database_url = os.getenv("DATABASE_URL", "postgresql+psycopg://ipre_user:ipre_password@localhost:5432/ipre_db")
     engine = create_engine(database_url)
     
     # Create tables (if they don't exist)
     SQLModel.metadata.create_all(engine)
-    
-    # Create a mock user for testing
-    from uuid import UUID
-    with Session(engine) as session:
-        mock_user_id = UUID("00000000-0000-0000-0000-000000000000")
-        existing_user = session.get(User, mock_user_id)
-        if not existing_user:
-            mock_user = User(
-                id=mock_user_id,
-                email="test@example.com",
-                is_active=True
-            )
-            session.add(mock_user)
-            session.commit()
-            print("Created mock user for testing")
-        else:
-            print("Mock user already exists")
     
     # Create a session maker
     def get_db_session():
@@ -100,6 +102,9 @@ app.add_middleware(
 )
 
 app.include_router(sim_router)
+app.include_router(agents_router)
+app.include_router(config_templates_router)
+app.include_router(configs_router)
 
 @app.get("/healthz")
 def healthz():

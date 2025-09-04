@@ -89,13 +89,12 @@ class Config(SQLModel, table=True):
     owner_user_id: Optional[UUID] = Field(foreign_key="users.id")
     name: str
     description: Optional[str] = None
-    visibility: str = Field(default="private")
     parameters: Dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    version_number: int = Field(default=1)  # Auto-incremented on changes
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     # lineage (optional)
     source_template_id: Optional[UUID] = Field(foreign_key="config_templates.id", default=None)
-    source_run_id: Optional[UUID] = None
 
 
 class ConfigAgentSnapshot(SQLModel, table=True):
@@ -122,6 +121,7 @@ class Run(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="users.id", nullable=False, index=True)
     config_id: Optional[UUID] = Field(foreign_key="configs.id", default=None)
+    config_version_when_run: Optional[int] = None  # Version number when this run was created
     # frozen snapshot captured at run start (parameters, agents[], moderator, etc.)
     config_snapshot: Dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
     status: str = Field(default="created")       # created|queued|running|finished|failed|stopped

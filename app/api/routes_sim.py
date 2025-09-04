@@ -4,10 +4,9 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlmodel import Session, select
 
-from app.api.schemas import CreateSimRequest, AvailableModelsResponse, AvailableModel
-
-# Import from the models.py file directly
-from ..models import Run, RunEvent
+from app.api.schemas import CreateSimRequest, AvailableModelsResponse, AvailableModel, RunResponse
+from app.services.config_service import create_or_update_config, build_config_snapshot
+from app.models import Run, RunEvent, Config
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
 
@@ -49,10 +48,52 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
     if len(req.agents) == 0:
         raise HTTPException(400, "At least one agent must be provided")
     
+    # Temporary user ID until auth is implemented
+    temp_user_id = UUID("00000000-0000-0000-0000-000000000000")
+    
+    # Handle config auto-save if config_id is provided
+    config = None
+    if req.config_id:
+        try:
+            config_uuid = UUID(req.config_id)
+            config = create_or_update_config(
+                db=db,
+                config_id=config_uuid,
+                name=req.config_name,
+                description=req.config_description,
+                parameters={
+                    "topic": req.topic,
+                    "max_iters": req.max_iters,
+                    "bias": req.bias,
+                    "stance": req.stance,
+                    "embedding_model": req.embedding_model,
+                    "embedding_config": req.embedding_config
+                },
+                agents=req.agents,
+                user_id=temp_user_id
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(500, f"Failed to update config: {str(e)}")
+    
+    # Build config snapshot for the run
+    config_snapshot = build_config_snapshot(
+        topic=req.topic,
+        agents=req.agents,
+        max_iters=req.max_iters,
+        bias=req.bias,
+        stance=req.stance,
+        embedding_model=req.embedding_model,
+        embedding_config=req.embedding_config
+    )
+    
     # Create Run record in database
     run = Run(
-        user_id="00000000-0000-0000-0000-000000000000",  # Temporary until auth is implemented
-        config_snapshot=req.dict(),
+        user_id=temp_user_id,
+        config_id=config.id if config else None,
+        config_version_when_run=config.version_number if config else None,
+        config_snapshot=config_snapshot,
         status="created"
     )
     db.add(run)
@@ -68,7 +109,7 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
         "message": "Simulation started, use GET /simulations/{id} to check progress"
     }
 
-@router.get("/{sim_id}")
+@router.get("/{sim_id}", response_model=RunResponse)
 async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
     """Get current simulation state and progress"""
     try:
@@ -80,6 +121,15 @@ async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
     run = db.get(Run, run_uuid)
     if not run:
         raise HTTPException(404, "Simulation not found")
+    
+    # Get config name and check if version is latest
+    config_name = None
+    is_latest_version = None
+    if run.config_id:
+        config = db.get(Config, run.config_id)
+        if config:
+            config_name = config.name
+            is_latest_version = run.config_version_when_run == config.version_number
     
     # Get recent events (last 10 for better context)
     recent_events_stmt = (
@@ -94,15 +144,19 @@ async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
     max_iters = run.config_snapshot.get("max_iters", 21)
     progress_percentage = (run.iters / max_iters) * 100 if max_iters > 0 else 0
     
-    return {
-        "simulation_id": str(run.id),
-        "status": run.status,
-        "progress": {
+    return RunResponse(
+        simulation_id=str(run.id),
+        config_id=str(run.config_id) if run.config_id else None,
+        config_name=config_name,
+        config_version_when_run=run.config_version_when_run,
+        is_latest_version=is_latest_version,
+        status=run.status,
+        progress={
             "current_iteration": run.iters,
             "max_iterations": max_iters,
             "percentage": min(progress_percentage, 100)
         },
-        "latest_events": [
+        latest_events=[
             {
                 "iteration": event.iteration,
                 "speaker": event.speaker,
@@ -113,12 +167,12 @@ async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
             }
             for event in reversed(recent_events)  # Chronological order
         ],
-        "is_finished": run.finished,
-        "stopped_reason": run.stopped_reason,
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-        "created_at": run.created_at.isoformat()
-    }
+        is_finished=run.finished,
+        stopped_reason=run.stopped_reason,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+        created_at=run.created_at
+    )
 
 @router.post("/{sim_id}/stop")
 async def stop_simulation(sim_id: str, db: Session = Depends(get_db)):
