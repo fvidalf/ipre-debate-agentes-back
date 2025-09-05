@@ -1,6 +1,7 @@
 from typing import List
 from uuid import UUID
 import logging
+import json
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from sqlmodel import Session, select
 
@@ -17,6 +18,47 @@ def get_db(request: Request):
         raise HTTPException(500, "Database not initialized")
     return db_session_maker()
 
+def log_config_object(operation: str, config: Config, additional_info: str = "", db: Session = None):
+    """Helper function to log config objects in a readable format"""
+    try:
+        config_dict = {
+            "id": str(config.id),
+            "name": config.name,
+            "description": config.description,
+            "parameters": config.parameters,
+            "version_number": config.version_number,
+            "source_template_id": str(config.source_template_id) if config.source_template_id else None,
+            "created_at": config.created_at.isoformat() if config.created_at else None,
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+        }
+        
+        # Also log the agent snapshots to see canvas positions
+        if db:
+            try:
+                agent_stmt = (
+                    select(ConfigAgentSnapshot)
+                    .where(ConfigAgentSnapshot.config_id == config.id)
+                    .order_by(ConfigAgentSnapshot.position)
+                )
+                agent_snapshots = db.exec(agent_stmt).all()
+                config_dict["agent_snapshots"] = [
+                    {
+                        "position": snapshot.position,
+                        "name": snapshot.name,
+                        "canvas_position": snapshot.canvas_position,
+                        "snapshot": snapshot.snapshot
+                    }
+                    for snapshot in agent_snapshots
+                ]
+            except Exception as e:
+                config_dict["agent_snapshots"] = f"Error loading snapshots: {e}"
+        
+        logger.info(f"CONFIG {operation.upper()}: {additional_info}")
+        logger.info(f"Config object: {json.dumps(config_dict, indent=2)}")
+    except Exception as e:
+        logger.error(f"Failed to log config object: {e}")
+        logger.info(f"CONFIG {operation.upper()}: {additional_info} (logging failed)")
+
 @router.get("", response_model=ConfigsListResponse)
 async def get_configs(
     db: Session = Depends(get_db),
@@ -28,6 +70,8 @@ async def get_configs(
     Configs are always private/personal (unlike templates which can be public).
     """
     try:
+        logger.info(f"RETRIEVE CONFIGS: Getting configs with limit={limit}, offset={offset}")
+        
         # Query for all configs (no visibility filtering - configs are always private)
         stmt = (
             select(Config)
@@ -37,6 +81,10 @@ async def get_configs(
         )
         
         configs = db.exec(stmt).all()
+        
+        logger.info(f"RETRIEVE CONFIGS: Found {len(configs)} configs")
+        for i, config in enumerate(configs):
+            log_config_object("RETRIEVE", config, f"Config {i+1}/{len(configs)} in list", db)
         
         # Count total configs
         count_stmt = select(Config)
@@ -63,6 +111,7 @@ async def get_configs(
         )
         
     except Exception as e:
+        logger.error(f"RETRIEVE CONFIGS ERROR: {e}")
         raise HTTPException(500, f"Failed to fetch configs: {str(e)}")
 
 @router.post("", response_model=ConfigResponse)
@@ -72,6 +121,9 @@ async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db))
     This is used by the frontend editor which requires a config ID to operate.
     """
     try:
+        logger.info(f"CREATE CONFIG: Starting creation of new config")
+        logger.info(f"Create request: {req}")
+        
         # Temporary user ID until auth is implemented
         temp_user_id = UUID("00000000-0000-0000-0000-000000000000")
         
@@ -82,8 +134,7 @@ async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db))
             "bias": [],
             "stance": "",
             "embedding_model": "onnx_minilm",
-            "embedding_config": {},
-            "agents": []
+            "embedding_config": {}
         }
         
         config = Config(
@@ -97,6 +148,8 @@ async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db))
         db.add(config)
         db.commit()
         db.refresh(config)
+        
+        log_config_object("CREATE", config, "Newly created config", db)
         
         # Return the config with empty agents list (no agent snapshots yet)
         return ConfigResponse(
@@ -112,6 +165,7 @@ async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db))
         )
         
     except Exception as e:
+        logger.error(f"CREATE CONFIG ERROR: {e}")
         raise HTTPException(500, f"Failed to create config: {str(e)}")
 
 @router.patch("/{config_id}", response_model=ConfigResponse)
@@ -127,9 +181,20 @@ async def update_config(
     try:
         config_uuid = UUID(config_id)
     except ValueError:
+        logger.error(f"UPDATE CONFIG ERROR: Invalid UUID format for config_id={config_id}")
         raise HTTPException(400, "Invalid config ID format")
     
     try:
+        logger.info(f"UPDATE CONFIG: Starting update for config_id={config_id}")
+        logger.info(f"Update request: {json.dumps(req.dict(exclude_unset=True), indent=2)}")
+        
+        # Log the config BEFORE update
+        existing_config = db.get(Config, config_uuid)
+        if existing_config:
+            log_config_object("UPDATE_BEFORE", existing_config, f"Config before update (ID: {config_id})", db)
+        else:
+            logger.warning(f"UPDATE CONFIG: Config not found with ID={config_id}")
+        
         # Update config using the manual update function
         config = update_config_manual(
             db=db,
@@ -147,6 +212,9 @@ async def update_config(
         
         db.commit()
         
+        # Log the config AFTER update
+        log_config_object("UPDATE_AFTER", config, f"Config after update (ID: {config_id})", db)
+        
         # Get updated agent snapshots
         agent_stmt = (
             select(ConfigAgentSnapshot)
@@ -160,6 +228,7 @@ async def update_config(
                 position=snapshot.position,
                 name=snapshot.name,
                 background=snapshot.background,
+                canvas_position=snapshot.canvas_position,
                 snapshot=snapshot.snapshot,
                 created_at=snapshot.created_at
             )
@@ -179,8 +248,10 @@ async def update_config(
         )
         
     except ValueError as e:
+        logger.error(f"UPDATE CONFIG ERROR: {e}")
         raise HTTPException(404, str(e))
     except Exception as e:
+        logger.error(f"UPDATE CONFIG ERROR: {e}")
         raise HTTPException(500, f"Failed to update config: {str(e)}")
 
 @router.get("/{config_id}", response_model=ConfigResponse)
@@ -194,43 +265,56 @@ async def get_config(
     try:
         config_uuid = UUID(config_id)
     except ValueError:
+        logger.error(f"RETRIEVE SINGLE CONFIG ERROR: Invalid UUID format for config_id={config_id}")
         raise HTTPException(400, "Invalid config ID format")
     
-    # Get the config (no visibility filtering needed for configs)
-    config = db.get(Config, config_uuid)
-    if not config:
-        raise HTTPException(404, "Config not found")
-    
-    # Get agents for this config
-    agent_stmt = (
-        select(ConfigAgentSnapshot)
-        .where(ConfigAgentSnapshot.config_id == config_uuid)
-        .order_by(ConfigAgentSnapshot.position)
-    )
-    agent_snapshots = db.exec(agent_stmt).all()
-    
-    agents = [
-        AgentSnapshotResponse(
-            position=snapshot.position,
-            name=snapshot.name,
-            background=snapshot.background,
-            snapshot=snapshot.snapshot,
-            created_at=snapshot.created_at
+    try:
+        logger.info(f"RETRIEVE SINGLE CONFIG: Getting config with ID={config_id}")
+        
+        # Get the config (no visibility filtering needed for configs)
+        config = db.get(Config, config_uuid)
+        if not config:
+            logger.warning(f"RETRIEVE SINGLE CONFIG: Config not found with ID={config_id}")
+            raise HTTPException(404, "Config not found")
+        
+        log_config_object("RETRIEVE_SINGLE", config, f"Single config retrieval (ID: {config_id})", db)
+        
+        # Get agents for this config
+        agent_stmt = (
+            select(ConfigAgentSnapshot)
+            .where(ConfigAgentSnapshot.config_id == config_uuid)
+            .order_by(ConfigAgentSnapshot.position)
         )
-        for snapshot in agent_snapshots
-    ]
-    
-    return ConfigResponse(
-        id=str(config.id),
-        name=config.name,
-        description=config.description,
-        parameters=config.parameters,
-        version_number=config.version_number,
-        agents=agents,
-        source_template_id=str(config.source_template_id) if config.source_template_id else None,
-        created_at=config.created_at,
-        updated_at=config.updated_at
-    )
+        agent_snapshots = db.exec(agent_stmt).all()
+        
+        agents = [
+            AgentSnapshotResponse(
+                position=snapshot.position,
+                name=snapshot.name,
+                background=snapshot.background,
+                canvas_position=snapshot.canvas_position,
+                snapshot=snapshot.snapshot,
+                created_at=snapshot.created_at
+            )
+            for snapshot in agent_snapshots
+        ]
+        
+        return ConfigResponse(
+            id=str(config.id),
+            name=config.name,
+            description=config.description,
+            parameters=config.parameters,
+            version_number=config.version_number,
+            agents=agents,
+            source_template_id=str(config.source_template_id) if config.source_template_id else None,
+            created_at=config.created_at,
+            updated_at=config.updated_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RETRIEVE SINGLE CONFIG ERROR: {e}")
+        raise HTTPException(500, f"Failed to get config: {str(e)}")
 
 
 @router.get("/{config_id}/runs", response_model=RunsListResponse)

@@ -104,6 +104,9 @@ class ConfigAgentSnapshot(SQLModel, table=True):
     position: int = Field(nullable=False)
     name: Optional[str] = None
     background: Optional[str] = None
+    canvas_position: Optional[Dict[str, float]] = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
     snapshot: Dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

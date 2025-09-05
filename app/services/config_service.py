@@ -11,7 +11,6 @@ from app.api.schemas import AgentConfig
 
 def build_config_snapshot(
     topic: str,
-    agents: List[AgentConfig],
     max_iters: int = 21,
     bias: Optional[List[float]] = None,
     stance: str = "",
@@ -22,14 +21,6 @@ def build_config_snapshot(
     """Build a standardized config snapshot from request parameters."""
     return {
         "topic": topic,
-        "agents": [
-            {
-                "name": agent.name,
-                "profile": agent.profile,
-                "model_id": agent.model_id
-            }
-            for agent in agents
-        ],
         "max_iters": max_iters,
         "bias": bias,
         "stance": stance,
@@ -60,7 +51,7 @@ def create_or_update_config(
             raise ValueError(f"Config {config_id} not found")
         
         # Check if anything actually changed
-        current_snapshot = build_config_snapshot(**parameters, agents=agents)
+        current_snapshot = build_config_snapshot(**parameters)
         if config.parameters != current_snapshot:
             # Config changed, increment version
             config.version_number += 1
@@ -73,7 +64,7 @@ def create_or_update_config(
         return config
     else:
         # Create new config
-        config_snapshot = build_config_snapshot(**parameters, agents=agents)
+        config_snapshot = build_config_snapshot(**parameters)
         config = Config(
             owner_user_id=user_id,
             name=name,
@@ -142,14 +133,10 @@ def update_config_manual(
     
     # Handle agents update
     if agents is not None:
-        current_params["agents"] = [
-            {
-                "name": agent.name,
-                "profile": agent.profile,
-                "model_id": agent.model_id
-            }
-            for agent in agents
-        ]
+        # Agents are no longer stored in parameters - only in ConfigAgentSnapshot table
+        # Update agent snapshots if agents were provided
+        _update_config_agents(db, config.id, agents)
+        changed = True
     
     # Check if parameters changed
     if config.parameters != current_params:
@@ -170,11 +157,20 @@ def update_config_manual(
 def _create_config_agents(db: Session, config_id: UUID, agents: List[AgentConfig]):
     """Create agent snapshots for a config."""
     for position, agent in enumerate(agents, 1):
+        # Extract canvas position if provided
+        canvas_position = None
+        if agent.canvas_position:
+            canvas_position = {
+                "x": agent.canvas_position.x,
+                "y": agent.canvas_position.y
+            }
+        
         agent_snapshot = ConfigAgentSnapshot(
             config_id=config_id,
             position=position,
             name=agent.name,
             background=None,  # Could be extracted from profile if needed
+            canvas_position=canvas_position,
             snapshot={
                 "profile": agent.profile,
                 "model_id": agent.model_id
@@ -191,6 +187,9 @@ def _update_config_agents(db: Session, config_id: UUID, agents: List[AgentConfig
     ).all()
     for agent in existing_agents:
         db.delete(agent)
+    
+    # Flush deletes to ensure they take effect before inserts
+    db.flush()
     
     # Create new agents
     _create_config_agents(db, config_id, agents)

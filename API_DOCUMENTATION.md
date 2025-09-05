@@ -220,6 +220,13 @@ Retrieves a specific public config template by ID.
 
 ## Configs
 
+Configs are editable debate configurations that contain parameters and associated agent snapshots. Unlike templates, configs can be modified and versioned over time.
+
+**Data Structure Notes:**
+- **Parameters**: Core debate settings (topic, max_iters, bias, etc.) stored in the `parameters` field
+- **Agents**: Agent configurations with canvas positions stored separately in agent snapshot records
+- **Versioning**: Parameters changes increment version number, agent changes are tracked in snapshots
+
 #### `GET /configs`
 
 Retrieves public configs that can be used for simulations. These are editable instances that can be modified and used as starting points for debates.
@@ -276,8 +283,7 @@ Creates a new blank config with default values. This is used by the frontend edi
     "bias": [],
     "stance": "",
     "embedding_model": "onnx_minilm",
-    "embedding_config": {},
-    "agents": []
+    "embedding_config": {}
   },
   "version_number": 1,
   "agents": [],
@@ -327,8 +333,7 @@ Updates a config with new values. Only provided fields are updated. Increments v
     "bias": [0.5, -0.3],
     "stance": "pro-increase",
     "embedding_model": "onnx_minilm",
-    "embedding_config": {},
-    "agents": [...]
+    "embedding_config": {}
   },
   "version_number": 2,
   "agents": [...],
@@ -337,6 +342,10 @@ Updates a config with new values. Only provided fields are updated. Increments v
   "updated_at": "2025-09-03T12:05:00Z"
 }
 ```
+
+**Important Notes:**
+- **Agent Data Storage**: Agents are stored separately from config parameters. Agent data (including canvas positions) is stored in dedicated agent snapshot records, not in the `parameters` field.
+- **Canvas Positioning**: Each agent can have optional `canvas_position` with `x` and `y` coordinates for UI layout.
 
 **Versioning Behavior:**
 - If only `name` or `description` change → version stays same

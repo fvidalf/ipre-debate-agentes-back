@@ -77,10 +77,9 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
         except Exception as e:
             raise HTTPException(500, f"Failed to update config: {str(e)}")
     
-    # Build config snapshot for the run
+    # Build config snapshot for the run (no agents in parameters)
     config_snapshot = build_config_snapshot(
         topic=req.topic,
-        agents=req.agents,
         max_iters=req.max_iters,
         bias=req.bias,
         stance=req.stance,

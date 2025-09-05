@@ -3,10 +3,15 @@ from pydantic import BaseModel
 from datetime import datetime
 from uuid import UUID
 
+class CanvasPosition(BaseModel):
+    x: float
+    y: float
+
 class AgentConfig(BaseModel):
     name: str
     profile: str
     model_id: Optional[str] = None  # Model ID for this specific agent
+    canvas_position: Optional[CanvasPosition] = None
 
 class CreateSimRequest(BaseModel):
     config_id: Optional[str] = None  # Optional: reference to existing config for auto-save
@@ -90,6 +95,7 @@ class AgentSnapshotResponse(BaseModel):
     position: int
     name: Optional[str]
     background: Optional[str]
+    canvas_position: Optional[CanvasPosition] = None
     snapshot: Dict[str, Any]
     created_at: datetime
 
