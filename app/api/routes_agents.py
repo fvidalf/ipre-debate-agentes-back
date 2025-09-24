@@ -6,15 +6,12 @@ from sqlmodel import Session, select
 
 from app.api.schemas import AgentTemplatesListResponse, AgentTemplateResponse
 from app.models import Agent
+from app.dependencies import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agents", tags=["agents"])
 
-def get_db(request: Request):
-    db_session_maker = getattr(request.app.state, "db_session", None)
-    if db_session_maker is None:
-        raise HTTPException(500, "Database not initialized")
-    return db_session_maker()
+
 
 @router.get("/templates", response_model=AgentTemplatesListResponse)
 async def get_agent_templates(

@@ -97,6 +97,21 @@ class Config(SQLModel, table=True):
     source_template_id: Optional[UUID] = Field(foreign_key="config_templates.id", default=None)
 
 
+class ConfigSnapshot(SQLModel, table=True):
+    __tablename__ = "config_snapshots"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    config_id: UUID = Field(foreign_key="configs.id", nullable=False, index=True)
+    version_number: int = Field(nullable=False)
+    # Complete config state at this version (parameters + agents)
+    parameters: Dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    agents: List[Dict[str, Any]] = Field(sa_column=Column(JSONB, nullable=False), default=[])
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    __table_args__ = (
+        Index("config_snapshots_unique_version", "config_id", "version_number", unique=True),
+    )
+
+
 class ConfigAgentSnapshot(SQLModel, table=True):
     __tablename__ = "config_agent_snapshots"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -125,8 +140,8 @@ class Run(SQLModel, table=True):
     user_id: UUID = Field(foreign_key="users.id", nullable=False, index=True)
     config_id: Optional[UUID] = Field(foreign_key="configs.id", default=None)
     config_version_when_run: Optional[int] = None  # Version number when this run was created
-    # frozen snapshot captured at run start (parameters, agents[], moderator, etc.)
-    config_snapshot: Dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    # Reference to the frozen snapshot (stored in separate table)
+    config_snapshot_id: Optional[UUID] = Field(foreign_key="config_snapshots.id", default=None)
     status: str = Field(default="created")       # created|queued|running|finished|failed|stopped
     iters: int = 0
     finished: bool = False

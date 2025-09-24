@@ -5,14 +5,11 @@ from sqlmodel import Session, select
 
 from app.api.schemas import ConfigTemplatesListResponse, ConfigTemplateResponse, ConfigTemplateListItem, AgentSnapshotResponse
 from app.models import ConfigTemplate, TemplateAgentSnapshot
+from app.dependencies import get_db
 
 router = APIRouter(prefix="/config-templates", tags=["config-templates"])
 
-def get_db(request: Request):
-    db_session_maker = getattr(request.app.state, "db_session", None)
-    if db_session_maker is None:
-        raise HTTPException(500, "Database not initialized")
-    return db_session_maker()
+
 
 @router.get("", response_model=ConfigTemplatesListResponse)
 async def get_config_templates(

@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlmodel import Session, select
 
 from app.api.schemas import CreateSimRequest, AvailableModelsResponse, AvailableModel, RunResponse
-from app.services.config_service import create_or_update_config, build_config_snapshot
+from app.services.config_service import create_or_update_config
 from app.models import Run, RunEvent, Config
+from app.dependencies import get_db
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
 
@@ -15,12 +16,6 @@ def get_service(request: Request):
     if svc is None:
         raise HTTPException(500, "Simulation service not initialized")
     return svc
-
-def get_db(request: Request):
-    db_session_maker = getattr(request.app.state, "db_session", None)
-    if db_session_maker is None:
-        raise HTTPException(500, "Database not initialized")
-    return db_session_maker()
 
 @router.get("/models", response_model=AvailableModelsResponse)
 async def get_available_models_endpoint():
@@ -77,22 +72,51 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
         except Exception as e:
             raise HTTPException(500, f"Failed to update config: {str(e)}")
     
-    # Build config snapshot for the run (no agents in parameters)
-    config_snapshot = build_config_snapshot(
-        topic=req.topic,
-        max_iters=req.max_iters,
-        bias=req.bias,
-        stance=req.stance,
-        embedding_model=req.embedding_model,
-        embedding_config=req.embedding_config
-    )
+    # Create or get config snapshot for the run
+    from app.services.config_service import create_config_snapshot, get_config_snapshot
+    
+    config_snapshot_record = None
+    if config:
+        # Use existing config snapshot if available
+        config_snapshot_record = get_config_snapshot(db, config.id, config.version_number)
+        if not config_snapshot_record:
+            # Create snapshot if it doesn't exist (shouldn't happen, but safety check)
+            config_snapshot_record = create_config_snapshot(
+                db=db,
+                config_id=config.id,
+                version_number=config.version_number,
+                topic=req.topic,
+                agents=req.agents,
+                max_iters=req.max_iters,
+                bias=req.bias,
+                stance=req.stance,
+                embedding_model=req.embedding_model,
+                embedding_config=req.embedding_config
+            )
+    else:
+        # Create a temporary snapshot for runs without saved configs
+        # Use a dummy config_id and version 0 for standalone runs
+        from uuid import uuid4
+        temp_config_id = uuid4()
+        config_snapshot_record = create_config_snapshot(
+            db=db,
+            config_id=temp_config_id,
+            version_number=0,
+            topic=req.topic,
+            agents=req.agents,
+            max_iters=req.max_iters,
+            bias=req.bias,
+            stance=req.stance,
+            embedding_model=req.embedding_model,
+            embedding_config=req.embedding_config
+        )
     
     # Create Run record in database
     run = Run(
         user_id=temp_user_id,
         config_id=config.id if config else None,
         config_version_when_run=config.version_number if config else None,
-        config_snapshot=config_snapshot,
+        config_snapshot_id=config_snapshot_record.id,
         status="created"
     )
     db.add(run)
@@ -139,8 +163,16 @@ async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
     )
     recent_events = db.exec(recent_events_stmt).all()
     
-    # Calculate progress
-    max_iters = run.config_snapshot.get("max_iters", 21)
+    # Get config snapshot to calculate progress
+    from app.models import ConfigSnapshot
+    config_snapshot = None
+    if run.config_snapshot_id:
+        config_snapshot = db.get(ConfigSnapshot, run.config_snapshot_id)
+    
+    max_iters = 21  # default
+    if config_snapshot:
+        max_iters = config_snapshot.parameters.get("max_iters", 21)
+    
     progress_percentage = (run.iters / max_iters) * 100 if max_iters > 0 else 0
     
     return RunResponse(

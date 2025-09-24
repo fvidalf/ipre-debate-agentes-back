@@ -454,6 +454,93 @@ Retrieves all simulation runs for a specific config, regardless of which version
 
 ---
 
+## Config Snapshots
+
+Config snapshots provide access to historical versions of configs, preserving the complete state (parameters + agents) at each version. This enables viewing and "collapsing" past config versions into new editable configs.
+
+#### `GET /config-snapshots/{config_id}/versions/{version_number}`
+
+Retrieves a specific config snapshot by config ID and version number. Returns the complete config state as it existed at that version, including all agents and their configurations.
+
+**Path Parameters:**
+- `config_id` (string): UUID of the config
+- `version_number` (integer): Version number to retrieve
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440002",
+  "name": "Modified Economic Debate (v2)",
+  "description": "A modified version of the economic policy debate template",
+  "parameters": {
+    "topic": "Should minimum wage be increased to $20/hour?",
+    "max_iters": 15,
+    "bias": [0.2, -0.2, 0.4],
+    "stance": "neutral",
+    "embedding_model": "onnx_minilm",
+    "embedding_config": {}
+  },
+  "version_number": 2,
+  "agents": [
+    {
+      "position": 1,
+      "name": "Conservative Economist",
+      "background": null,
+      "canvas_position": {
+        "x": 100.5,
+        "y": 200.0
+      },
+      "snapshot": {
+        "profile": "You are a conservative economist concerned about fiscal policy...",
+        "model_id": "openai/gpt-4o"
+      },
+      "created_at": "2025-09-24T00:00:00Z"
+    },
+    {
+      "position": 2,
+      "name": "Progressive Activist",
+      "background": null,
+      "canvas_position": {
+        "x": 300.0,
+        "y": 150.75
+      },
+      "snapshot": {
+        "profile": "You are a progressive activist focused on workers' rights...",
+        "model_id": "anthropic/claude-3.5-sonnet"
+      },
+      "created_at": "2025-09-24T00:00:00Z"
+    }
+  ],
+  "source_template_id": "550e8400-e29b-41d4-a716-446655440001",
+  "created_at": "2025-09-24T00:00:00Z",
+  "updated_at": "2025-09-24T00:00:00Z"
+}
+```
+
+**Key Features:**
+- **Complete historical state**: Includes both parameters and agents as they existed at that version
+- **Canvas positions**: Preserves agent positions on the frontend canvas (stored as floats)
+- **Immutable snapshots**: Historical versions cannot be modified
+- **Version indication**: Config name includes version number for clarity
+
+**Use Cases:**
+- **Version comparison**: Compare different versions of the same config
+- **Historical analysis**: Review how configs evolved over time
+- **Config restoration**: "Collapse" old versions into new editable configs
+- **Audit trail**: Track what configuration was used for specific simulation runs
+
+**Error Responses:**
+- `400`: Invalid config ID format
+- `404`: Config not found
+- `404`: Snapshot not found for specified version
+
+**Notes:**
+- Snapshots are automatically created when configs are saved or used in simulations
+- Only configs that have been saved or used in simulations will have snapshots
+- Version numbers start from 1 and increment with each parameter change
+
+---
+
 ## Simulation Management
 
 #### `POST /simulations`

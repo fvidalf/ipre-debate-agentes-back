@@ -8,15 +8,10 @@ from sqlmodel import Session, select
 from app.api.schemas import ConfigsListResponse, ConfigResponse, ConfigListItem, AgentSnapshotResponse, RunsListResponse, RunListItem, CreateConfigRequest, UpdateConfigRequest
 from app.services.config_service import update_config_manual
 from app.models import Config, ConfigAgentSnapshot, Run
+from app.dependencies import get_db
 
 router = APIRouter(prefix="/configs", tags=["configs"])
 logger = logging.getLogger(__name__)
-
-def get_db(request: Request):
-    db_session_maker = getattr(request.app.state, "db_session", None)
-    if db_session_maker is None:
-        raise HTTPException(500, "Database not initialized")
-    return db_session_maker()
 
 def log_config_object(operation: str, config: Config, additional_info: str = "", db: Session = None):
     """Helper function to log config objects in a readable format"""

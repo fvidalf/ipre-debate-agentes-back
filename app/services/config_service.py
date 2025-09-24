@@ -5,21 +5,25 @@ from typing import Dict, Any, Optional, List
 from uuid import UUID
 from datetime import datetime
 from sqlmodel import Session, select
-from app.models import Config, ConfigAgentSnapshot
+from app.models import Config, ConfigAgentSnapshot, ConfigSnapshot
 from app.api.schemas import AgentConfig
 
 
-def build_config_snapshot(
+def create_config_snapshot(
+    db: Session,
+    config_id: UUID,
+    version_number: int,
     topic: str,
+    agents: List[AgentConfig],
     max_iters: int = 21,
     bias: Optional[List[float]] = None,
     stance: str = "",
     embedding_model: str = "onnx_minilm",
     embedding_config: Optional[dict] = None,
     **kwargs
-) -> Dict[str, Any]:
-    """Build a standardized config snapshot from request parameters."""
-    return {
+) -> ConfigSnapshot:
+    """Create a ConfigSnapshot record with complete config state."""
+    parameters = {
         "topic": topic,
         "max_iters": max_iters,
         "bias": bias,
@@ -28,6 +32,73 @@ def build_config_snapshot(
         "embedding_config": embedding_config or {},
         **kwargs
     }
+    
+    # Load existing canvas positions from ConfigAgentSnapshot table
+    existing_agents = db.exec(
+        select(ConfigAgentSnapshot)
+        .where(ConfigAgentSnapshot.config_id == config_id)
+        .order_by(ConfigAgentSnapshot.position)
+    ).all()
+    
+    # Create a mapping of position -> canvas_position for existing agents
+    canvas_positions = {agent.position: agent.canvas_position for agent in existing_agents}
+    
+    agents_data = []
+    for i, agent in enumerate(agents):
+        position = i + 1  # Positions start from 1
+        
+        # Use canvas position from request if provided, otherwise use saved position
+        canvas_pos = None
+        if agent.canvas_position:
+            canvas_pos = agent.canvas_position.dict()
+        elif position in canvas_positions and canvas_positions[position]:
+            canvas_pos = canvas_positions[position]
+        
+        agents_data.append({
+            "name": agent.name,
+            "profile": agent.profile,
+            "model_id": agent.model_id,
+            "canvas_position": canvas_pos
+        })
+    
+    # Check if snapshot already exists (shouldn't happen, but just in case)
+    existing_snapshot = db.exec(
+        select(ConfigSnapshot).where(
+            ConfigSnapshot.config_id == config_id,
+            ConfigSnapshot.version_number == version_number
+        )
+    ).first()
+    
+    if existing_snapshot:
+        # Update existing snapshot
+        existing_snapshot.parameters = parameters
+        existing_snapshot.agents = agents_data
+        db.add(existing_snapshot)
+        return existing_snapshot
+    else:
+        # Create new snapshot
+        snapshot = ConfigSnapshot(
+            config_id=config_id,
+            version_number=version_number,
+            parameters=parameters,
+            agents=agents_data
+        )
+        db.add(snapshot)
+        return snapshot
+
+
+def get_config_snapshot(
+    db: Session,
+    config_id: UUID,
+    version_number: int
+) -> Optional[ConfigSnapshot]:
+    """Get a specific config snapshot by config_id and version_number."""
+    return db.exec(
+        select(ConfigSnapshot).where(
+            ConfigSnapshot.config_id == config_id,
+            ConfigSnapshot.version_number == version_number
+        )
+    ).first()
 
 
 def create_or_update_config(
@@ -51,30 +122,46 @@ def create_or_update_config(
             raise ValueError(f"Config {config_id} not found")
         
         # Check if anything actually changed
-        current_snapshot = build_config_snapshot(**parameters)
-        if config.parameters != current_snapshot:
+        if config.parameters != parameters:
             # Config changed, increment version
             config.version_number += 1
-            config.parameters = current_snapshot
+            config.parameters = parameters
             config.updated_at = datetime.utcnow()
             
-            # Update agent snapshots
+            # Create snapshot for this new version
+            create_config_snapshot(
+                db=db,
+                config_id=config.id,
+                version_number=config.version_number,
+                agents=agents,
+                **parameters
+            )
+            
+            # Update agent snapshots in current config
             _update_config_agents(db, config.id, agents)
         
         return config
     else:
         # Create new config
-        config_snapshot = build_config_snapshot(**parameters)
         config = Config(
             owner_user_id=user_id,
             name=name,
             description=description,
-            parameters=config_snapshot,
+            parameters=parameters,
             version_number=1,
             source_template_id=source_template_id
         )
         db.add(config)
         db.flush()  # Get the ID
+        
+        # Create snapshot for version 1
+        create_config_snapshot(
+            db=db,
+            config_id=config.id,
+            version_number=1,
+            agents=agents,
+            **parameters
+        )
         
         # Create agent snapshots
         _create_config_agents(db, config.id, agents)
