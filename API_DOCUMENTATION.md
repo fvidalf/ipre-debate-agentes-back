@@ -35,7 +35,13 @@ No authentication required.
 
 #### `GET /simulations/models`
 
-Retrieves available language models for agent configuration.
+Retrieves availabl## Config Versions
+
+Config versions provide access to historical versions of configs, preserving the complete state (parameters + agents) at each version. This enables viewing and "collapsing" past config versions into new editable configs.
+
+### GET /config-versions/{config_id}/versions/{version_number}
+
+Retrieves a specific config version by config ID and version number. Returns the complete config state as it existed at that version, including all agents and their configurations.age models for agent configuration.
 
 **Response:**
 ```json
@@ -278,7 +284,7 @@ Creates a new blank config with default values. This is used by the frontend edi
   "description": null,
   "visibility": "private",
   "parameters": {
-    "topic": "",
+    "topic": "Should artificial intelligence development be regulated by government?",
     "max_iters": 21,
     "bias": [],
     "stance": "",
@@ -458,9 +464,9 @@ Retrieves all simulation runs for a specific config, regardless of which version
 
 Config snapshots provide access to historical versions of configs, preserving the complete state (parameters + agents) at each version. This enables viewing and "collapsing" past config versions into new editable configs.
 
-#### `GET /config-snapshots/{config_id}/versions/{version_number}`
+#### `GET /config-versions/{config_id}/versions/{version_number}`
 
-Retrieves a specific config snapshot by config ID and version number. Returns the complete config state as it existed at that version, including all agents and their configurations.
+Retrieves a specific config version by config ID and version number. Returns the complete config state as it existed at that version, including all agents and their configurations.
 
 **Path Parameters:**
 - `config_id` (string): UUID of the config
@@ -520,7 +526,7 @@ Retrieves a specific config snapshot by config ID and version number. Returns th
 **Key Features:**
 - **Complete historical state**: Includes both parameters and agents as they existed at that version
 - **Canvas positions**: Preserves agent positions on the frontend canvas (stored as floats)
-- **Immutable snapshots**: Historical versions cannot be modified
+- **Immutable versions**: Historical versions cannot be modified
 - **Version indication**: Config name includes version number for clarity
 
 **Use Cases:**
@@ -532,11 +538,11 @@ Retrieves a specific config snapshot by config ID and version number. Returns th
 **Error Responses:**
 - `400`: Invalid config ID format
 - `404`: Config not found
-- `404`: Snapshot not found for specified version
+- `404`: Version not found for specified version
 
 **Notes:**
-- Snapshots are automatically created when configs are saved or used in simulations
-- Only configs that have been saved or used in simulations will have snapshots
+- Versions are automatically created when configs are saved or used in simulations
+- Only configs that have been saved or used in simulations will have versions
 - Version numbers start from 1 and increment with each parameter change
 
 ---
@@ -681,7 +687,7 @@ Stops a running simulation.
 
 #### `POST /simulations/{sim_id}/vote`
 
-Triggers voting for a completed simulation.
+Triggers voting for a completed simulation. Each agent votes on the debate topic based on their final opinion and reasoning. Individual votes are stored with full agent context and can be retrieved on subsequent calls.
 
 **Path Parameters:**
 - `sim_id` (string): Simulation ID
@@ -692,15 +698,120 @@ Triggers voting for a completed simulation.
   "simulation_id": "550e8400-e29b-41d4-a716-446655440000",
   "yea": 2,
   "nay": 1,
-  "reasons": [
-    "TechExec: While I support innovation, some basic safety regulations are necessary",
-    "PrivacyAdvocate: Strong regulations are essential to protect citizen privacy"
-  ]
+  "individual_votes": [
+    {
+      "agent_name": "TechExec",
+      "agent_background": "Tech industry executive with focus on innovation and market growth",
+      "vote": false,
+      "reasoning": "While I support innovation, some basic safety regulations are necessary to prevent market failures"
+    },
+    {
+      "agent_name": "PrivacyAdvocate", 
+      "agent_background": "Digital rights activist focused on privacy protection",
+      "vote": true,
+      "reasoning": "Strong regulations are essential to protect citizen privacy and prevent corporate overreach"
+    }
+  ],
+  "created_at": "2024-01-15T11:45:00Z"
+}
+```
+
+**Features:**
+- **Individual Vote Details**: Each agent's vote with essential context and reasoning
+- **Simplified Response**: Only includes relevant voting information (name, background, vote, reasoning)
+- **Idempotent**: Calling multiple times returns the same results (votes are stored permanently)
+- **Rich Reasoning**: Each agent provides detailed explanation for their vote decision
+
+**Requirements:**
+- Simulation must have `status: "finished"`
+
+**Response Fields:**
+- `simulation_id`: UUID of the simulation
+- `yea`: Total number of affirmative votes
+- `nay`: Total number of negative votes  
+- `individual_votes`: Array of individual vote objects containing:
+  - `agent_name`: Name of the agent who voted
+  - `agent_background`: Agent's stance/profile for context
+  - `vote`: Boolean (true = yea, false = nay)
+  - `reasoning`: Agent's explanation for their vote decision
+- `created_at`: Timestamp when voting was completed
+
+---
+
+#### `GET /simulations/{sim_id}/analytics`
+
+Retrieves analytics and visualizations data for a completed simulation. Analytics are computed on first request and cached for subsequent calls.
+
+**Path Parameters:**
+- `sim_id` (string): Simulation ID
+
+**Response:**
+```json
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440000",
+  "engagement_matrix": {
+    "data": [
+      [2, 0, 1, 0, 1],
+      [1, 2, 0, 1, 0],
+      [0, 1, 2, 1, 1]
+    ],
+    "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"],
+    "turn_count": 5,
+    "legend": {
+      "0": "inactive",
+      "1": "engaged",
+      "2": "speaking"
+    }
+  },
+  "participation_stats": {
+    "total_interventions": {
+      "Sarah Mitchell": 2,
+      "James Thompson": 2,
+      "Maria Lopez": 1
+    },
+    "total_engagements": {
+      "Sarah Mitchell": 3,
+      "James Thompson": 2,
+      "Maria Lopez": 4
+    },
+    "engagement_rates": {
+      "Sarah Mitchell": 0.6,
+      "James Thompson": 0.4,
+      "Maria Lopez": 0.8
+    },
+    "participation_percentages": {
+      "Sarah Mitchell": 40.0,
+      "James Thompson": 40.0,
+      "Maria Lopez": 20.0
+    },
+    "total_turns": 5
+  },
+  "opinion_similarity": {
+    "matrix": [
+      [1.0, 0.23, 0.87],
+      [0.23, 1.0, 0.34],
+      [0.87, 0.34, 1.0]
+    ],
+    "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"]
+  },
+  "computed_at": "2025-09-26T10:30:00"
 }
 ```
 
 **Requirements:**
 - Simulation must have `status: "finished"`
+- Analytics are computed once and cached for performance
+
+**Use Cases:**
+- Generate engagement heatmaps showing who participated when
+- Create participation charts showing speaking time distribution
+- Build opinion similarity matrices/clustermaps for consensus analysis
+- Analyze debate dynamics and agent interaction patterns
+
+**Notes:**
+- `opinion_similarity` matrix is only included if embedding model is available
+- Similarity values range from 0.0 (completely different) to 1.0 (identical)
+- Matrix is symmetric with 1.0 on diagonal (self-similarity)
 
 ---
 

@@ -172,3 +172,17 @@ class UpdateConfigRequest(BaseModel):
     stance: Optional[str] = None
     embedding_model: Optional[str] = None
     embedding_config: Optional[dict] = None
+
+# Voting Schemas
+class IndividualVote(BaseModel):
+    agent_name: str
+    agent_background: str  # Their stance/profile for context
+    vote: bool  # True=Yea, False=Nay  
+    reasoning: str
+
+class VotingResponse(BaseModel):
+    simulation_id: str
+    yea: int
+    nay: int
+    individual_votes: List[IndividualVote]
+    created_at: datetime

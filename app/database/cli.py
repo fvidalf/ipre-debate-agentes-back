@@ -45,8 +45,28 @@ def drop_all_tables():
     """Drop all tables in the database."""
     print("Dropping all tables...")
     try:
-        # For SQLModel/SQLAlchemy, we can drop all tables
-        SQLModel.metadata.drop_all(engine)
+        # First, try the standard approach
+        try:
+            SQLModel.metadata.drop_all(engine)
+        except Exception as drop_error:
+            print(f"Standard drop failed, trying CASCADE approach...")
+            # If that fails, use raw SQL with CASCADE to force drop all tables
+            with engine.connect() as conn:
+                # Get all table names
+                result = conn.execute(text("""
+                    SELECT tablename FROM pg_tables 
+                    WHERE schemaname = 'public'
+                """))
+                tables = result.fetchall()
+                
+                # Drop each table with CASCADE
+                for table in tables:
+                    table_name = table[0]
+                    print(f"Dropping table: {table_name}")
+                    conn.execute(text(f"DROP TABLE IF EXISTS {table_name} CASCADE"))
+                
+                conn.commit()
+        
         print("✅ All tables dropped successfully!")
     except Exception as e:
         print(f"❌ Failed to drop tables: {e}")

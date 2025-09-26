@@ -3,7 +3,7 @@ from typing import List, Optional
 import random
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from .nlp import StanceAwareSBERT
+from .nlp import SentenceEmbedder
 from .agents import PoliAgent
 
 
@@ -12,8 +12,8 @@ class Moderator:
     Manages turn-taking using weighted sampling over agents who 'raised a hand'.
     Tracks fairness via 'interventions' and 'hands_raised' counts.
     """
-    def __init__(self, agents: List[PoliAgent], sbert: StanceAwareSBERT, stance: str = "", bias: Optional[List[float]] = None,):
-        self._sbert = sbert
+    def __init__(self, agents: List[PoliAgent], embedder: SentenceEmbedder, stance: str = "", bias: Optional[List[float]] = None,):
+        self._embedder = embedder
         self.agents = agents
         self._requests: List[PoliAgent] = []
         self.interventions = [0] * len(agents)
@@ -83,7 +83,7 @@ class Moderator:
         if len(last_opinions) < 2:
             return False
 
-        embeddings = self._sbert.encode(last_opinions)
+        embeddings = self._embedder.encode(last_opinions)
         similarity_matrix = cosine_similarity(embeddings)
         n = len(last_opinions)
         total = similarity_matrix.sum() - np.trace(similarity_matrix)

@@ -2,7 +2,7 @@ from typing import List, Tuple, Optional
 import dspy
 import numpy as np
 from .memory import FixedMemory
-from .nlp import StanceAwareSBERT
+from .nlp import SentenceEmbedder
 
 
 class PoliAgent(dspy.Module):
@@ -19,7 +19,7 @@ class PoliAgent(dspy.Module):
         name: str,
         background: str,
         topic: str,
-        sbert: StanceAwareSBERT,
+        embedder: SentenceEmbedder,
         model: Optional[dspy.LM] = None,
         memory_size: int = 3,
         respond_signature: str = "topic, context, your_background -> opinion",
@@ -31,7 +31,7 @@ class PoliAgent(dspy.Module):
         self.topic = topic
         self.background = background
         self.memory = FixedMemory(memory_size)
-        self._sbert = sbert
+        self._embedder = embedder
         self.model = model  # Individual model for this agent
         
         # Create predictor modules with agent-specific model if provided
@@ -43,8 +43,19 @@ class PoliAgent(dspy.Module):
             # Fallback to global configuration
             self.respond = dspy.Predict(respond_signature)
             self.voting = dspy.ChainOfThought(vote_signature)
+        self.last_opinion: str = self._generate_initial_opinion()
+
+    def _generate_initial_opinion(self) -> str:
+        context = ""
+        
+        # Use agent-specific model if available
+        if self.model:
+            with dspy.context(lm=self.model):
+                out = self.respond(topic=self.topic, context=context, your_background=self.background)
+        else:
+            out = self.respond(topic=self.topic, context=context, your_background=self.background)
             
-        self.last_opinion: str = ""
+        return out.opinion
 
     def talk(self) -> str:
         context = self.memory.to_text()
@@ -61,7 +72,7 @@ class PoliAgent(dspy.Module):
         return self.last_opinion
     
     def evaluate(self, other_opinion: str, low: float = 0.3, high: float = 0.75) -> bool:
-        similarity_score = self._sbert.text_similarity_score(self.last_opinion, other_opinion)
+        similarity_score = self._embedder.text_similarity_score(self.last_opinion, other_opinion)
         if similarity_score < low or similarity_score > high:
             return True
         return False

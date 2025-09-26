@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 
 from app.api.schemas import CreateSimRequest, AvailableModelsResponse, AvailableModel, RunResponse
 from app.services.config_service import create_or_update_config
+from app.services.analytics_service import AnalyticsService
 from app.models import Run, RunEvent, Config
 from app.dependencies import get_db
 
@@ -72,16 +73,16 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
         except Exception as e:
             raise HTTPException(500, f"Failed to update config: {str(e)}")
     
-    # Create or get config snapshot for the run
-    from app.services.config_service import create_config_snapshot, get_config_snapshot
+    # Create or get config version for the run
+    from app.services.config_service import create_config_version, get_config_version
     
-    config_snapshot_record = None
+    config_version_record = None
     if config:
-        # Use existing config snapshot if available
-        config_snapshot_record = get_config_snapshot(db, config.id, config.version_number)
-        if not config_snapshot_record:
-            # Create snapshot if it doesn't exist (shouldn't happen, but safety check)
-            config_snapshot_record = create_config_snapshot(
+        # Use existing config version if available
+        config_version_record = get_config_version(db, config.id, config.version_number)
+        if not config_version_record:
+            # Create version if it doesn't exist (shouldn't happen, but safety check)
+            config_version_record = create_config_version(
                 db=db,
                 config_id=config.id,
                 version_number=config.version_number,
@@ -94,11 +95,11 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
                 embedding_config=req.embedding_config
             )
     else:
-        # Create a temporary snapshot for runs without saved configs
+        # Create a temporary version record for runs without saved configs
         # Use a dummy config_id and version 0 for standalone runs
         from uuid import uuid4
         temp_config_id = uuid4()
-        config_snapshot_record = create_config_snapshot(
+        config_version_record = create_config_version(
             db=db,
             config_id=temp_config_id,
             version_number=0,
@@ -116,7 +117,7 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
         user_id=temp_user_id,
         config_id=config.id if config else None,
         config_version_when_run=config.version_number if config else None,
-        config_snapshot_id=config_snapshot_record.id,
+        config_version_id=config_version_record.id,
         status="created"
     )
     db.add(run)
@@ -163,17 +164,16 @@ async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
     )
     recent_events = db.exec(recent_events_stmt).all()
     
-    # Get config snapshot to calculate progress
-    from app.models import ConfigSnapshot
-    config_snapshot = None
-    if run.config_snapshot_id:
-        config_snapshot = db.get(ConfigSnapshot, run.config_snapshot_id)
-    
+    # Get config version to calculate progress
+    from app.models import ConfigVersion
+    config_version = None
+    if run.config_version_id:
+        config_version = db.get(ConfigVersion, run.config_version_id)
+
     max_iters = 21  # default
-    if config_snapshot:
-        max_iters = config_snapshot.parameters.get("max_iters", 21)
-    
-    progress_percentage = (run.iters / max_iters) * 100 if max_iters > 0 else 0
+    if config_version:
+        max_iters = config_version.parameters.get("max_iters", 21)    
+        progress_percentage = (run.iters / max_iters) * 100 if max_iters > 0 else 0
     
     return RunResponse(
         simulation_id=str(run.id),
@@ -191,7 +191,7 @@ async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
             {
                 "iteration": event.iteration,
                 "speaker": event.speaker,
-                "opinion": event.opinion[:300] + "..." if len(event.opinion) > 300 else event.opinion,
+                "opinion": event.opinion,
                 "engaged": event.engaged,
                 "finished": event.finished,
                 "timestamp": event.created_at.isoformat()
@@ -235,6 +235,10 @@ async def stop_simulation(sim_id: str, db: Session = Depends(get_db)):
 @router.post("/{sim_id}/vote")
 async def vote_simulation(sim_id: str, svc=Depends(get_service), db: Session = Depends(get_db)):
     """Trigger voting phase for a completed simulation"""
+    from app.api.schemas import VotingResponse, IndividualVote
+    from app.models import Summary, ConfigAgent
+    from sqlmodel import select
+    
     try:
         run_uuid = UUID(sim_id)
     except ValueError:
@@ -247,12 +251,79 @@ async def vote_simulation(sim_id: str, svc=Depends(get_service), db: Session = D
     if not run.finished:
         raise HTTPException(400, "Simulation must be finished before voting")
     
-    # This will need to be implemented in the service
-    yea, nay, reasons = await svc.trigger_voting(run_uuid, db)
+    # Check if voting already exists
+    existing_summary_stmt = select(Summary).where(Summary.run_id == run_uuid)
+    existing_summary = db.exec(existing_summary_stmt).first()
     
-    return {
-        "simulation_id": str(run.id),
-        "yea": yea,
-        "nay": nay,
-        "reasons": reasons
-    }
+    if existing_summary and existing_summary.individual_votes:
+        # Return existing voting results
+        summary = existing_summary
+    else:
+        # Trigger new voting
+        yea, nay, reasons = await svc.trigger_voting(run_uuid, db)
+        
+        # Get the newly created summary
+        summary_stmt = select(Summary).where(Summary.run_id == run_uuid)
+        summary = db.exec(summary_stmt).first()
+        
+        if not summary:
+            raise HTTPException(500, "Failed to create voting summary")
+    
+    # Build simplified response with essential voting information
+    individual_votes = []
+    if summary.individual_votes:
+        for vote_data in summary.individual_votes:
+            # Get agent data from the stored vote (comes from ConfigVersion.agents)
+            agent_data = vote_data["agent_data"]
+            
+            individual_votes.append(IndividualVote(
+                agent_name=agent_data.get("name", f"Agent {vote_data['agent_position']}"),
+                agent_background=agent_data.get("profile", ""),  # Their stance/profile for context
+                vote=vote_data["vote"],
+                reasoning=vote_data["reasoning"]
+            ))
+    
+    return VotingResponse(
+        simulation_id=str(run.id),
+        yea=summary.yea or 0,
+        nay=summary.nay or 0,
+        individual_votes=individual_votes,
+        created_at=summary.created_at
+    )
+
+
+@router.get("/{sim_id}/analytics")
+async def get_simulation_analytics(sim_id: str, db: Session = Depends(get_db)):
+    """Get analytics for a completed simulation (engagement matrix, participation stats, opinion similarity)"""
+    try:
+        run_uuid = UUID(sim_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid simulation ID format")
+    
+    # Get run to find config for embedding settings
+    run = db.get(Run, run_uuid)
+    if not run:
+        raise HTTPException(404, "Simulation not found")
+    
+    # Create sentence embedder using default config (for similarity matrix)
+    sentence_embedder = None
+    try:
+        from app.classes.nlp import create_sentence_embedder
+        # Use default embedding model (onnx_minilm for efficiency)
+        sentence_embedder = create_sentence_embedder(model_type="onnx_minilm")
+    except Exception:
+        # If embedder creation fails, analytics will work without similarity matrix
+        pass
+    
+    analytics_service = AnalyticsService(sentence_embedder)
+    
+    # Use short-lived session pattern
+    analytics = analytics_service.get_or_compute_analytics(run_uuid, db)
+    
+    if analytics is None:
+        raise HTTPException(404, "Simulation not found")
+    
+    if "error" in analytics:
+        raise HTTPException(400, analytics["error"])
+    
+    return analytics

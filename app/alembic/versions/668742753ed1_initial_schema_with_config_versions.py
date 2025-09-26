@@ -1,8 +1,8 @@
-"""add canvas_position
+"""initial schema with config versions
 
-Revision ID: 609a95e27d46
-Revises: d66d4e6751cd
-Create Date: 2025-09-05 16:18:33.186066
+Revision ID: 668742753ed1
+Revises: 
+Create Date: 2025-09-26 17:33:42.079510
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '609a95e27d46'
-down_revision: Union[str, None] = 'd66d4e6751cd'
+revision: str = '668742753ed1'
+down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

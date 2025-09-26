@@ -3,20 +3,20 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlmodel import Session
 
 from app.api.schemas import ConfigResponse, AgentSnapshotResponse, CanvasPosition
-from app.services.config_service import get_config_snapshot
+from app.services.config_service import get_config_version
 from app.models import Config
 from app.dependencies import get_db
 
-router = APIRouter(prefix="/config-snapshots", tags=["config-snapshots"])
+router = APIRouter(prefix="/config-versions", tags=["config-versions"])
 
 @router.get("/{config_id}/versions/{version_number}", response_model=ConfigResponse)
-async def get_config_snapshot_version(
+async def get_config_version_endpoint(
     config_id: str,
     version_number: int,
     db: Session = Depends(get_db)
 ):
     """
-    Get a specific config snapshot by config ID and version number.
+    Get a specific config version by config ID and version number.
     This returns the complete config state as it existed at that version,
     including all agents and their configurations.
     """
@@ -30,14 +30,14 @@ async def get_config_snapshot_version(
     if not config:
         raise HTTPException(404, "Config not found")
     
-    # Get the snapshot for the specific version
-    snapshot = get_config_snapshot(db, config_uuid, version_number)
-    if not snapshot:
-        raise HTTPException(404, f"Snapshot not found for config {config_id} version {version_number}")
+    # Get the version for the specific version number
+    version = get_config_version(db, config_uuid, version_number)
+    if not version:
+        raise HTTPException(404, f"Version not found for config {config_id} version {version_number}")
     
-    # Convert agents from snapshot format to AgentSnapshotResponse format
+    # Convert agents from version format to AgentSnapshotResponse format
     agents = []
-    for i, agent_data in enumerate(snapshot.agents):
+    for i, agent_data in enumerate(version.agents):
         canvas_position = None
         if agent_data.get("canvas_position"):
             canvas_position = CanvasPosition(
@@ -48,13 +48,13 @@ async def get_config_snapshot_version(
         agents.append(AgentSnapshotResponse(
             position=i + 1,  # Position starts from 1
             name=agent_data.get("name"),
-            background=None,  # Not stored in snapshot, could be added if needed
+            background=None,  # Not stored in version, could be added if needed
             canvas_position=canvas_position,
-            snapshot={
+            snapshot={  # Note: This field name "snapshot" is correct - it contains the agent's configuration snapshot
                 "profile": agent_data.get("profile", ""),
                 "model_id": agent_data.get("model_id", "")
             },
-            created_at=snapshot.created_at
+            created_at=version.created_at
         ))
     
     # Return in the same format as regular config endpoint
@@ -62,10 +62,10 @@ async def get_config_snapshot_version(
         id=str(config.id),
         name=f"{config.name} (v{version_number})",  # Indicate it's a historical version
         description=config.description,
-        parameters=snapshot.parameters,
+        parameters=version.parameters,
         version_number=version_number,
         agents=agents,
         source_template_id=str(config.source_template_id) if config.source_template_id else None,
-        created_at=snapshot.created_at,  # Use snapshot creation time
-        updated_at=snapshot.created_at   # Snapshots are immutable
+        created_at=version.created_at,  # Use version creation time
+        updated_at=version.created_at   # Versions are immutable
     )

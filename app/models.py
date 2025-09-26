@@ -97,8 +97,8 @@ class Config(SQLModel, table=True):
     source_template_id: Optional[UUID] = Field(foreign_key="config_templates.id", default=None)
 
 
-class ConfigSnapshot(SQLModel, table=True):
-    __tablename__ = "config_snapshots"
+class ConfigVersion(SQLModel, table=True):
+    __tablename__ = "config_versions"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     config_id: UUID = Field(foreign_key="configs.id", nullable=False, index=True)
     version_number: int = Field(nullable=False)
@@ -108,12 +108,12 @@ class ConfigSnapshot(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     __table_args__ = (
-        Index("config_snapshots_unique_version", "config_id", "version_number", unique=True),
+        Index("config_versions_unique_version", "config_id", "version_number", unique=True),
     )
 
 
-class ConfigAgentSnapshot(SQLModel, table=True):
-    __tablename__ = "config_agent_snapshots"
+class ConfigAgent(SQLModel, table=True):
+    __tablename__ = "config_agents"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     config_id: UUID = Field(foreign_key="configs.id", nullable=False)
     position: int = Field(nullable=False)
@@ -126,7 +126,7 @@ class ConfigAgentSnapshot(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     __table_args__ = (
-        Index("config_agent_snapshots_unique_pos", "config_id", "position", unique=True),
+        Index("config_agents_unique_pos", "config_id", "position", unique=True),
     )
 
 
@@ -140,8 +140,8 @@ class Run(SQLModel, table=True):
     user_id: UUID = Field(foreign_key="users.id", nullable=False, index=True)
     config_id: Optional[UUID] = Field(foreign_key="configs.id", default=None)
     config_version_when_run: Optional[int] = None  # Version number when this run was created
-    # Reference to the frozen snapshot (stored in separate table)
-    config_snapshot_id: Optional[UUID] = Field(foreign_key="config_snapshots.id", default=None)
+    # Reference to the frozen version (stored in separate table)
+    config_version_id: Optional[UUID] = Field(foreign_key="config_versions.id", default=None)
     status: str = Field(default="created")       # created|queued|running|finished|failed|stopped
     iters: int = 0
     finished: bool = False
@@ -179,6 +179,31 @@ class Summary(SQLModel, table=True):
     run_id: UUID = Field(foreign_key="runs.id", nullable=False, index=True)
     yea: Optional[int] = None
     nay: Optional[int] = None
-    reasons: Optional[List[str]] = Field(sa_column=Column(ARRAY(String)))  # from /vote
+    reasons: Optional[List[str]] = Field(sa_column=Column(ARRAY(String)))  # from /vote (deprecated, use individual_votes)
     summary: Optional[Dict[str, Any]] = Field(sa_column=Column(JSONB))     # structured verdict/metrics
+    individual_votes: Optional[List[Dict[str, Any]]] = Field(sa_column=Column(JSONB), default=None)
+    # Structure: [{"agent_position": int, "agent_data": {config_version_agent}, "vote": bool, "reasoning": "text"}]
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# -----------------------
+# Analytics & Visualizations Cache
+# -----------------------
+
+class RunAnalytics(SQLModel, table=True):
+    __tablename__ = "run_analytics"
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    run_id: UUID = Field(foreign_key="runs.id", nullable=False, index=True, unique=True)
+    
+    # Engagement Matrix: [agent_index][turn] -> 0=inactive, 1=engaged, 2=speaking
+    engagement_matrix: List[List[int]] = Field(sa_column=Column(JSONB, nullable=False))
+    agent_names: List[str] = Field(sa_column=Column(ARRAY(String), nullable=False))
+    
+    # Participation Statistics
+    participation_stats: Dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    
+    # Opinion Similarity Matrix (optional, computed if embedder available)
+    opinion_similarity_matrix: Optional[List[List[float]]] = Field(sa_column=Column(JSONB), default=None)
+    
+    # Computed at first request
+    computed_at: datetime = Field(default_factory=datetime.utcnow)

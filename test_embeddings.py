@@ -79,28 +79,6 @@ def test_onnx_embedder():
         print(f"❌ ONNX test failed: {e}")
 
 
-def test_backward_compatibility():
-    """Test backward compatibility with old interface"""
-    print("\nTesting backward compatibility...")
-    
-    try:
-        from models.nlp import load_stance_aware_sbert, StanceAwareSBERT
-        
-        # Test that old function exists and works
-        embedder = load_stance_aware_sbert()
-        print("✅ load_stance_aware_sbert() function works")
-        
-        # Test that it returns compatible interface
-        sentences = ["Test sentence 1", "Test sentence 2"]
-        if hasattr(embedder, 'encode') and hasattr(embedder, 'text_similarity_score'):
-            print("✅ Backward compatible interface maintained")
-        else:
-            print("❌ Backward compatible interface missing")
-            
-    except Exception as e:
-        print(f"❌ Backward compatibility test failed: {e}")
-
-
 def main():
     """Run all tests"""
     print("🧪 Testing new embedding system...")
@@ -108,7 +86,6 @@ def main():
     
     test_openrouter_embedder()
     test_onnx_embedder() 
-    test_backward_compatibility()
     
     print("\n" + "=" * 50)
     print("🏁 Test completed!")

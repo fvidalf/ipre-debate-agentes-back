@@ -50,6 +50,26 @@ python -m app.database.cli reset          # Drop and recreate tables
 python -m app.database.cli status         # Check migration status
 ```
 
+### Creating Migrations
+
+When you modify database models in `app/models.py`, create a new migration:
+
+```bash
+# Create a new migration with descriptive message
+# You may need to activate your venv to do this
+alembic revision --autogenerate -m "add individual votes to summary table"
+
+# Review the generated migration file in app/alembic/versions/
+# Then apply it
+python -m app.database.cli migrate
+```
+
+**Migration workflow:**
+1. Modify models in `app/models.py`
+2. Generate migration: `alembic revision --autogenerate -m "description"`
+3. Review generated file in `app/alembic/versions/`
+4. Apply migration: `python -m app.database.cli migrate` (or `alembic upgrade head`)
+
 **With Docker:** You can run CLI commands from your host (they'll connect to the Docker database), or run them inside the container:
 ```bash
 # From host (requires local Python setup)

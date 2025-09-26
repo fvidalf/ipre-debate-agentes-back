@@ -22,7 +22,7 @@ class Simulation:
     # Inputs (same defaults/shape as notebook expectations)
     topic: str
     agent_configs: List[InternalAgentConfig]  # Updated to use internal agent configs
-    sbert: Any                        # SentenceTransformer w/ PEFT, passed in
+    embedder: Any                        # SentenceTransformer w/ PEFT, passed in
     lm: dspy.LM                       # dspy LM (configured outside, used as fallback)
     api_base: str                     # OpenRouter API base
     api_key: str                      # OpenRouter API key
@@ -70,7 +70,7 @@ class Simulation:
                 name=agent_config.name,
                 background=agent_config.profile,
                 topic=self.topic,
-                sbert=self.sbert,
+                embedder=self.embedder,
                 model=agent_model
             )
             objs.append(a)
@@ -90,7 +90,7 @@ class Simulation:
 
         self._mod = Moderator(
             self._agents,
-            sbert=self.sbert,
+            embedder=self.embedder,
             stance=self.stance,
             bias=self.bias,
         )

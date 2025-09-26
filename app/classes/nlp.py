@@ -188,11 +188,3 @@ def setup_onnx_model(
     
     print(f"ONNX model exported to {output_dir}")
     print("Note: This model requires mean pooling in the encode() method for sentence embeddings.")
-
-
-# Backward compatibility - create an alias
-StanceAwareSBERT = SentenceEmbedder  # For backward compatibility
-
-def load_stance_aware_sbert(**kwargs) -> SentenceEmbedder:
-    """Backward compatibility function"""
-    return create_sentence_embedder(**kwargs)

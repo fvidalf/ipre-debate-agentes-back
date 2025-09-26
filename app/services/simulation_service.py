@@ -64,7 +64,7 @@ class SimulationService:
             simulation = Simulation(
                 topic=config.topic,
                 agent_configs=agent_configs,
-                sbert=sbert,
+                embedder=sbert,
                 lm=self._lm,
                 api_base=self._api_base,
                 api_key=self._api_key,
@@ -155,8 +155,106 @@ class SimulationService:
             except Exception as db_error:
                 print(f"Failed to update failed simulation status: {db_error}")
 
-    async def trigger_voting(self, run_id: UUID) -> Tuple[int, int, List[str]]:
-        """Trigger voting for a completed simulation"""
-        # This would need to recreate the simulation from stored events
-        # For now, return placeholder - we can implement this later
-        return 0, 0, ["Voting not yet implemented in new system"]
+    async def trigger_voting(self, run_id: UUID, db: Session) -> Tuple[int, int, List[str]]:
+        """Trigger voting for a completed simulation and store individual votes"""
+        from app.models import Summary, ConfigVersion, ConfigAgent
+        
+        # Get run info
+        run = db.get(Run, run_id)
+        if not run:
+            raise ValueError("Run not found")
+        
+        if not run.finished:
+            raise ValueError("Run must be finished before voting")
+        
+        # Get config version to recreate simulation setup
+        config_version = db.get(ConfigVersion, run.config_version_id)
+        if not config_version:
+            raise ValueError("Config version not found")
+        
+        version_agents = config_version.agents
+        
+        # Recreate simulation from stored events
+        from sqlmodel import select
+        events_stmt = (
+            select(RunEvent)
+            .where(RunEvent.run_id == run_id)
+            .order_by(RunEvent.iteration)
+        )
+        events = db.exec(events_stmt).all()
+        
+        # Create simulation instance
+        embedder = create_sentence_embedder(
+            model_type=config_version.parameters.get("embedding_model", "onnx_minilm")
+        )
+        
+        # Convert version agents to internal configs
+        agent_configs = [
+            InternalAgentConfig(
+                name=agent_data.get("name", f"Agent {i}"),
+                profile=agent_data.get("profile", ""),
+                model_id=agent_data.get("model_id")
+            )
+            for i, agent_data in enumerate(version_agents)
+        ]
+        
+        simulation = Simulation(
+            topic=config_version.parameters.get("topic", ""),
+            agent_configs=agent_configs,
+            embedder=embedder,
+            lm=self._lm,
+            api_base=self._api_base,
+            api_key=self._api_key,
+            max_iters=config_version.parameters.get("max_iters", 21),
+            bias=config_version.parameters.get("bias", [1] * len(agent_configs)),
+            stance=config_version.parameters.get("stance", "")
+        )
+        
+        # Initialize simulation and replay events to restore state
+        simulation.start()
+        
+        # Replay events to restore agent memory and state
+        for event in events:
+            # Find the agent that spoke
+            speaking_agent = None
+            for agent in simulation._agents:
+                if agent.name == event.speaker:
+                    speaking_agent = agent
+                    break
+            
+            if speaking_agent:
+                # Set the opinion (this would be the result of the forward() call)
+                speaking_agent.last_opinion = event.opinion
+                
+                # Have other agents process this opinion (update their memory)
+                for agent in simulation._agents:
+                    if agent.name != event.speaker and agent.name in event.engaged:
+                        agent.memory.enqueue(event.opinion)
+        
+        # Now trigger voting
+        yea, nay, reasons_list = simulation.vote()
+        
+        # Create individual votes with agent position/index
+        individual_votes = []
+        for i, agent in enumerate(simulation._agents):
+            vote, reasoning = agent.vote()
+            individual_votes.append({
+                "agent_position": i,
+                "agent_data": version_agents[i],  # Store the full agent data from config version
+                "vote": vote,
+                "reasoning": reasoning
+            })
+        
+        # Store in Summary model
+        summary = Summary(
+            run_id=run_id,
+            yea=yea,
+            nay=nay,
+            reasons=reasons_list,  # Keep for backward compatibility
+            individual_votes=individual_votes
+        )
+        
+        db.add(summary)
+        db.commit()
+        
+        return yea, nay, reasons_list

@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.api.schemas import ConfigsListResponse, ConfigResponse, ConfigListItem, AgentSnapshotResponse, RunsListResponse, RunListItem, CreateConfigRequest, UpdateConfigRequest
 from app.services.config_service import update_config_manual
-from app.models import Config, ConfigAgentSnapshot, Run
+from app.models import Config, ConfigAgent, Run
 from app.dependencies import get_db
 
 router = APIRouter(prefix="/configs", tags=["configs"])
@@ -31,9 +31,9 @@ def log_config_object(operation: str, config: Config, additional_info: str = "",
         if db:
             try:
                 agent_stmt = (
-                    select(ConfigAgentSnapshot)
-                    .where(ConfigAgentSnapshot.config_id == config.id)
-                    .order_by(ConfigAgentSnapshot.position)
+                    select(ConfigAgent)
+                    .where(ConfigAgent.config_id == config.id)
+                    .order_by(ConfigAgent.position)
                 )
                 agent_snapshots = db.exec(agent_stmt).all()
                 config_dict["agent_snapshots"] = [
@@ -124,7 +124,7 @@ async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db))
         
         # Create a default config with minimal parameters
         default_parameters = {
-            "topic": "",
+            "topic": "Should artificial intelligence development be regulated by government?",
             "max_iters": 21,
             "bias": [],
             "stance": "",
@@ -212,9 +212,9 @@ async def update_config(
         
         # Get updated agent snapshots
         agent_stmt = (
-            select(ConfigAgentSnapshot)
-            .where(ConfigAgentSnapshot.config_id == config_uuid)
-            .order_by(ConfigAgentSnapshot.position)
+            select(ConfigAgent)
+            .where(ConfigAgent.config_id == config_uuid)
+            .order_by(ConfigAgent.position)
         )
         agent_snapshots = db.exec(agent_stmt).all()
         
@@ -276,9 +276,9 @@ async def get_config(
         
         # Get agents for this config
         agent_stmt = (
-            select(ConfigAgentSnapshot)
-            .where(ConfigAgentSnapshot.config_id == config_uuid)
-            .order_by(ConfigAgentSnapshot.position)
+            select(ConfigAgent)
+            .where(ConfigAgent.config_id == config_uuid)
+            .order_by(ConfigAgent.position)
         )
         agent_snapshots = db.exec(agent_stmt).all()
         

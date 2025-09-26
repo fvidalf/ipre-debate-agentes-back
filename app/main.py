@@ -26,7 +26,7 @@ from app.api.routes_sim import router as sim_router
 from app.api.routes_agents import router as agents_router
 from app.api.routes_config_templates import router as config_templates_router
 from app.api.routes_configs import router as configs_router
-from app.api.routes_config_snapshots import router as config_snapshots_router
+from app.api.routes_config_versions import router as config_versions_router
 from app.services import SimulationService
 from app.models import User
 
@@ -106,7 +106,7 @@ app.include_router(sim_router)
 app.include_router(agents_router)
 app.include_router(config_templates_router)
 app.include_router(configs_router)
-app.include_router(config_snapshots_router)
+app.include_router(config_versions_router)
 
 @app.get("/healthz")
 def healthz():
