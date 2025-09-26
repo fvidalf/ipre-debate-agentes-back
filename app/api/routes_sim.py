@@ -292,6 +292,51 @@ async def vote_simulation(sim_id: str, svc=Depends(get_service), db: Session = D
     )
 
 
+@router.get("/{sim_id}/votes")
+async def check_votes(sim_id: str, db: Session = Depends(get_db)):
+    """Check if votes exist for a simulation without triggering voting"""
+    from app.api.schemas import VotingResponse, IndividualVote
+    from app.models import Summary
+    from sqlmodel import select
+    
+    try:
+        run_uuid = UUID(sim_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid simulation ID format")
+    
+    run = db.get(Run, run_uuid)
+    if not run:
+        raise HTTPException(404, "Simulation not found")
+    
+    # Check if voting exists
+    existing_summary_stmt = select(Summary).where(Summary.run_id == run_uuid)
+    existing_summary = db.exec(existing_summary_stmt).first()
+    
+    if not existing_summary or not existing_summary.individual_votes:
+        raise HTTPException(404, "No votes found for this simulation")
+    
+    # Build response with existing voting data
+    individual_votes = []
+    for vote_data in existing_summary.individual_votes:
+        # Get agent data from the stored vote (comes from ConfigVersion.agents)
+        agent_data = vote_data["agent_data"]
+        
+        individual_votes.append(IndividualVote(
+            agent_name=agent_data.get("name", f"Agent {vote_data['agent_position']}"),
+            agent_background=agent_data.get("profile", ""),  # Their stance/profile for context
+            vote=vote_data["vote"],
+            reasoning=vote_data["reasoning"]
+        ))
+    
+    return VotingResponse(
+        simulation_id=str(run.id),
+        yea=existing_summary.yea or 0,
+        nay=existing_summary.nay or 0,
+        individual_votes=individual_votes,
+        created_at=existing_summary.created_at
+    )
+
+
 @router.get("/{sim_id}/analytics")
 async def get_simulation_analytics(sim_id: str, db: Session = Depends(get_db)):
     """Get analytics for a completed simulation (engagement matrix, participation stats, opinion similarity)"""

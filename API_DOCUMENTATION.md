@@ -460,6 +460,45 @@ Retrieves all simulation runs for a specific config, regardless of which version
 
 ---
 
+#### `DELETE /configs/{config_id}`
+
+Permanently deletes a config and all related entities including runs, events, summaries, analytics, versions, and agent snapshots.
+
+**Path Parameters:**
+- `config_id` (string): UUID of the config to delete
+
+**Response:**
+```json
+{
+  "message": "Config 'Economic Policy Debate' and all related data deleted successfully",
+  "deleted_config_id": "550e8400-e29b-41d4-a716-446655440002",
+  "deleted_runs_count": 3
+}
+```
+
+**What Gets Deleted:**
+- **Config**: The main config record
+- **Config Versions**: All historical versions of the config
+- **Config Agents**: All agent snapshots associated with the config
+- **Runs**: All simulation runs created from this config
+- **Run Events**: All debate events from associated runs
+- **Summaries**: All voting summaries from associated runs
+- **Run Analytics**: All cached analytics data from associated runs
+
+**Warning**: This operation is **irreversible**. All simulation data, results, and analytics for runs created from this config will be permanently lost.
+
+**Error Responses:**
+- `400`: Invalid config ID format
+- `404`: Config not found
+- `500`: Database error during deletion
+
+**Use Cases:**
+- Clean up test/development configs
+- Remove configs that are no longer needed
+- Free up database space by removing obsolete simulation data
+
+---
+
 ## Config Snapshots
 
 Config snapshots provide access to historical versions of configs, preserving the complete state (parameters + agents) at each version. This enables viewing and "collapsing" past config versions into new editable configs.
@@ -735,6 +774,54 @@ Triggers voting for a completed simulation. Each agent votes on the debate topic
   - `vote`: Boolean (true = yea, false = nay)
   - `reasoning`: Agent's explanation for their vote decision
 - `created_at`: Timestamp when voting was completed
+
+---
+
+#### `GET /simulations/{sim_id}/votes`
+
+Checks if votes exist for a simulation without triggering voting. Returns existing vote data in the same format as the voting endpoint, but only if votes have already been created.
+
+**Path Parameters:**
+- `sim_id` (string): Simulation ID
+
+**Response:**
+```json
+{
+  "simulation_id": "550e8400-e29b-41d4-a716-446655440000",
+  "yea": 2,
+  "nay": 1,
+  "individual_votes": [
+    {
+      "agent_name": "TechExec",
+      "agent_background": "Tech industry executive with focus on innovation and market growth",
+      "vote": false,
+      "reasoning": "While I support innovation, some basic safety regulations are necessary to prevent market failures"
+    },
+    {
+      "agent_name": "PrivacyAdvocate", 
+      "agent_background": "Digital rights activist focused on privacy protection",
+      "vote": true,
+      "reasoning": "Strong regulations are essential to protect citizen privacy and prevent corporate overreach"
+    }
+  ],
+  "created_at": "2024-01-15T11:45:00Z"
+}
+```
+
+**Features:**
+- **Read-only**: Does not trigger voting or modify any data
+- **Same Format**: Returns identical response format as `POST /simulations/{sim_id}/vote`
+- **Existence Check**: Only returns data if votes already exist
+
+**Error Responses:**
+- `400`: Invalid simulation ID format
+- `404`: Simulation not found
+- `404`: No votes found for this simulation
+
+**Use Cases:**
+- Check if voting has been completed without accidentally triggering new votes
+- Retrieve existing vote results for display/analysis
+- Validate vote existence before performing operations that depend on votes
 
 ---
 

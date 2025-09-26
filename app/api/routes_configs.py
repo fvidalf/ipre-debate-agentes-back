@@ -365,3 +365,74 @@ async def get_config_runs(
     total = len(db.exec(count_stmt).all())
     
     return RunsListResponse(runs=run_items, total=total)
+
+
+@router.delete("/{config_id}")
+async def delete_config(config_id: str, db: Session = Depends(get_db)):
+    """Delete a config and all related entities (runs, events, summaries, analytics, versions, agents)"""
+    from app.models import ConfigVersion, RunEvent, Summary, RunAnalytics
+    from sqlmodel import select, delete
+    
+    try:
+        config_uuid = UUID(config_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid config ID format")
+    
+    # Verify config exists
+    config = db.get(Config, config_uuid)
+    if not config:
+        raise HTTPException(404, "Config not found")
+    
+    logger.info(f"Deleting config {config_id} ({config.name}) and all related entities")
+    
+    try:
+        # Get all runs for this config to delete their related data
+        runs_stmt = select(Run).where(Run.config_id == config_uuid)
+        runs = db.exec(runs_stmt).all()
+        run_ids = [run.id for run in runs]
+        
+        if run_ids:
+            logger.info(f"Found {len(run_ids)} runs to delete")
+            
+            # Delete run analytics (no foreign key dependencies)
+            analytics_stmt = delete(RunAnalytics).where(RunAnalytics.run_id.in_(run_ids))
+            db.exec(analytics_stmt)
+            
+            # Delete summaries (no foreign key dependencies)
+            summaries_stmt = delete(Summary).where(Summary.run_id.in_(run_ids))
+            db.exec(summaries_stmt)
+            
+            # Delete run events (no foreign key dependencies)  
+            events_stmt = delete(RunEvent).where(RunEvent.run_id.in_(run_ids))
+            db.exec(events_stmt)
+            
+            # Delete runs
+            runs_stmt = delete(Run).where(Run.config_id == config_uuid)
+            db.exec(runs_stmt)
+        
+        # Delete config versions
+        versions_stmt = delete(ConfigVersion).where(ConfigVersion.config_id == config_uuid)
+        db.exec(versions_stmt)
+        
+        # Delete config agents
+        agents_stmt = delete(ConfigAgent).where(ConfigAgent.config_id == config_uuid)
+        db.exec(agents_stmt)
+        
+        # Finally delete the config itself
+        db.delete(config)
+        
+        # Commit all changes
+        db.commit()
+        
+        logger.info(f"Successfully deleted config {config_id} and all related entities")
+        
+        return {
+            "message": f"Config '{config.name}' and all related data deleted successfully",
+            "deleted_config_id": str(config_uuid),
+            "deleted_runs_count": len(run_ids)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting config {config_id}: {str(e)}")
+        raise HTTPException(500, f"Failed to delete config: {str(e)}")
