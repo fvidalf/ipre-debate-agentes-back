@@ -2,6 +2,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlmodel import SQLModel
 
 from ..models import RunEvent, RunAnalytics, Run
 from ..classes.nlp import SentenceEmbedder
@@ -18,8 +19,8 @@ class AnalyticsService:
         Get analytics for a run. If not cached, compute and cache them.
         Uses short-lived DB session pattern like the rest of the app.
         """
-        # Check if analytics already exist
-        existing_analytics = db.get(RunAnalytics, run_id)
+        # Check if analytics already exist - query by run_id, not primary key
+        existing_analytics = db.query(RunAnalytics).filter(RunAnalytics.run_id == run_id).first()
         if existing_analytics:
             return self._format_analytics_response(existing_analytics)
         
@@ -55,8 +56,8 @@ class AnalyticsService:
         """Compute analytics from RunEvent data"""
         
         # Get all events for this run, ordered by iteration
-        stmt = select(RunEvent).where(RunEvent.run_id == run_id).order_by(RunEvent.iteration)
-        events = db.exec(stmt).all()
+        # Use SQLAlchemy query method for better compatibility
+        events = db.query(RunEvent).filter(RunEvent.run_id == run_id).order_by(RunEvent.iteration).all()
         
         if not events:
             return None
@@ -138,7 +139,7 @@ class AnalyticsService:
             "total_turns": total_turns
         }
     
-    def _compute_opinion_similarity(self, events: List[RunEvent], agent_names: List[str]) -> Optional[List[List[float]]]:
+    def _compute_opinion_similarity(self, events: List[RunEvent], agent_names: List[str]) -> Optional[Dict[str, Any]]:
         """Compute opinion similarity matrix using final opinions of each agent"""
         
         if not self.embedder:
@@ -153,21 +154,31 @@ class AnalyticsService:
             if event.speaker not in agent_final_opinions:
                 agent_final_opinions[event.speaker] = event.opinion
         
-        # Ensure we have opinions for all agents (some might not have spoken)
+        # Only include agents who actually spoke
+        speaking_agents = []
         final_opinions = []
-        valid_agent_names = []
         
         for agent_name in agent_names:
             if agent_name in agent_final_opinions:
+                speaking_agents.append(agent_name)
                 final_opinions.append(agent_final_opinions[agent_name])
-                valid_agent_names.append(agent_name)
         
         if len(final_opinions) < 2:
             return None  # Need at least 2 opinions to compute similarity
         
-        # Compute similarity matrix
-        similarity_matrix = []
+        # Compute similarity matrix with explicit agent mappings
+        similarity_data = {}
         
+        for i, agent_i in enumerate(speaking_agents):
+            for j, agent_j in enumerate(speaking_agents):
+                if i == j:
+                    similarity_data[f"{agent_i}_vs_{agent_j}"] = 1.0  # Self-similarity is 1.0
+                else:
+                    similarity = self.embedder.text_similarity_score(final_opinions[i], final_opinions[j])
+                    similarity_data[f"{agent_i}_vs_{agent_j}"] = float(similarity)
+        
+        # Also create traditional matrix format for backwards compatibility
+        similarity_matrix = []
         for i, opinion_i in enumerate(final_opinions):
             similarity_row = []
             for j, opinion_j in enumerate(final_opinions):
@@ -178,14 +189,25 @@ class AnalyticsService:
                     similarity_row.append(float(similarity))  # Ensure it's a regular float
             similarity_matrix.append(similarity_row)
         
-        return similarity_matrix
+        return {
+            "matrix": similarity_matrix,
+            "speaking_agents": speaking_agents,
+            "similarity_pairs": similarity_data
+        }
     
     def _format_analytics_response(self, analytics: RunAnalytics) -> Dict[str, Any]:
-        """Format analytics data for API response"""
-        response = {
-            "run_id": str(analytics.run_id),
-            "engagement_matrix": {
-                "data": analytics.engagement_matrix,
+        """Format analytics data for API response with structured analytics array"""
+        
+        # Build analytics array with individual analytic objects
+        analytics_array = []
+        
+        # Engagement Matrix Analytics
+        analytics_array.append({
+            "type": "engagement_matrix",
+            "title": "Agent Engagement Matrix",
+            "description": "Shows agent activity patterns across debate turns",
+            "data": analytics.engagement_matrix,
+            "metadata": {
                 "agent_names": analytics.agent_names,
                 "turn_count": len(analytics.engagement_matrix[0]) if analytics.engagement_matrix else 0,
                 "legend": {
@@ -193,16 +215,59 @@ class AnalyticsService:
                     "1": "engaged", 
                     "2": "speaking"
                 }
-            },
-            "participation_stats": analytics.participation_stats,
-            "computed_at": analytics.computed_at.isoformat()
-        }
+            }
+        })
         
-        # Include opinion similarity matrix if available
-        if analytics.opinion_similarity_matrix:
-            response["opinion_similarity"] = {
-                "matrix": analytics.opinion_similarity_matrix,
+        # Participation Statistics Analytics
+        analytics_array.append({
+            "type": "participation_stats",
+            "title": "Participation Statistics",
+            "description": "Agent intervention counts, engagement rates, and participation percentages",
+            "data": analytics.participation_stats,
+            "metadata": {
                 "agent_names": analytics.agent_names
             }
+        })
+        
+        # Opinion Similarity Analytics (if available)
+        if analytics.opinion_similarity_matrix:
+            # Extract the speaking agents and similarity data from the stored structure
+            similarity_data = analytics.opinion_similarity_matrix
+            
+            if isinstance(similarity_data, dict) and "speaking_agents" in similarity_data:
+                # New format with explicit agent mappings
+                analytics_array.append({
+                    "type": "opinion_similarity",
+                    "title": "Opinion Similarity Matrix",
+                    "description": "Semantic similarity between agents' final opinions",
+                    "data": {
+                        "matrix": similarity_data["matrix"],
+                        "similarity_pairs": similarity_data["similarity_pairs"]
+                    },
+                    "metadata": {
+                        "speaking_agents": similarity_data["speaking_agents"],
+                        "similarity_range": {"min": 0.0, "max": 1.0},
+                        "note": "Higher values indicate more similar opinions. Only agents who spoke are included."
+                    }
+                })
+            else:
+                # Fallback for old format (backwards compatibility)
+                analytics_array.append({
+                    "type": "opinion_similarity",
+                    "title": "Opinion Similarity Matrix",
+                    "description": "Semantic similarity between agents' final opinions",
+                    "data": similarity_data,
+                    "metadata": {
+                        "agent_names": analytics.agent_names,
+                        "similarity_range": {"min": 0.0, "max": 1.0},
+                        "note": "Higher values indicate more similar opinions"
+                    }
+                })
+        
+        response = {
+            "run_id": str(analytics.run_id),
+            "computed_at": analytics.computed_at.isoformat(),
+            "analytics": analytics_array
+        }
         
         return response

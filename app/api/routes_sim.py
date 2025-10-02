@@ -336,10 +336,35 @@ async def check_votes(sim_id: str, db: Session = Depends(get_db)):
         created_at=existing_summary.created_at
     )
 
-
 @router.get("/{sim_id}/analytics")
-async def get_simulation_analytics(sim_id: str, db: Session = Depends(get_db)):
-    """Get analytics for a completed simulation (engagement matrix, participation stats, opinion similarity)"""
+async def check_analytics(sim_id: str, db: Session = Depends(get_db)):
+    """Check if analytics exist for a simulation without triggering computation"""
+    from app.models import RunAnalytics
+    
+    try:
+        run_uuid = UUID(sim_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid simulation ID format")
+    
+    run = db.get(Run, run_uuid)
+    if not run:
+        raise HTTPException(404, "Simulation not found")
+    
+    # Check if analytics already exist
+    existing_analytics = db.query(RunAnalytics).filter(RunAnalytics.run_id == run_uuid).first()
+    
+    if not existing_analytics:
+        raise HTTPException(404, "No analytics found for this simulation")
+    
+    # Return existing analytics
+    from app.services.analytics_service import AnalyticsService
+    analytics_service = AnalyticsService()
+    return analytics_service._format_analytics_response(existing_analytics)
+
+
+@router.post("/{sim_id}/analyze")
+async def analyze_simulation(sim_id: str, db: Session = Depends(get_db)):
+    """Compute analytics for a completed simulation (engagement matrix, participation stats, opinion similarity)"""
     try:
         run_uuid = UUID(sim_id)
     except ValueError:

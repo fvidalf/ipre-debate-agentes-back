@@ -825,9 +825,9 @@ Checks if votes exist for a simulation without triggering voting. Returns existi
 
 ---
 
-#### `GET /simulations/{sim_id}/analytics`
+#### `POST /simulations/{sim_id}/analyze`
 
-Retrieves analytics and visualizations data for a completed simulation. Analytics are computed on first request and cached for subsequent calls.
+Computes analytics for a completed simulation. Analytics include engagement matrices, participation statistics, and opinion similarity data. Results are cached for subsequent requests.
 
 **Path Parameters:**
 - `sim_id` (string): Simulation ID
@@ -836,67 +836,215 @@ Retrieves analytics and visualizations data for a completed simulation. Analytic
 ```json
 {
   "run_id": "550e8400-e29b-41d4-a716-446655440000",
-  "engagement_matrix": {
-    "data": [
-      [2, 0, 1, 0, 1],
-      [1, 2, 0, 1, 0],
-      [0, 1, 2, 1, 1]
-    ],
-    "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"],
-    "turn_count": 5,
-    "legend": {
-      "0": "inactive",
-      "1": "engaged",
-      "2": "speaking"
+  "computed_at": "2025-09-26T10:30:00",
+  "analytics": [
+    {
+      "type": "engagement_matrix",
+      "title": "Agent Engagement Matrix",
+      "description": "Shows agent activity patterns across debate turns",
+      "data": [
+        [2, 0, 1, 0, 1],
+        [1, 2, 0, 1, 0],
+        [0, 1, 2, 1, 1]
+      ],
+      "metadata": {
+        "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"],
+        "turn_count": 5,
+        "legend": {
+          "0": "inactive",
+          "1": "engaged",
+          "2": "speaking"
+        }
+      }
+    },
+    {
+      "type": "participation_stats",
+      "title": "Participation Statistics",
+      "description": "Agent intervention counts, engagement rates, and participation percentages",
+      "data": {
+        "total_interventions": {
+          "Sarah Mitchell": 2,
+          "James Thompson": 2,
+          "Maria Lopez": 1
+        },
+        "total_engagements": {
+          "Sarah Mitchell": 3,
+          "James Thompson": 2,
+          "Maria Lopez": 4
+        },
+        "engagement_rates": {
+          "Sarah Mitchell": 0.6,
+          "James Thompson": 0.4,
+          "Maria Lopez": 0.8
+        },
+        "participation_percentages": {
+          "Sarah Mitchell": 40.0,
+          "James Thompson": 40.0,
+          "Maria Lopez": 20.0
+        },
+        "total_turns": 5
+      },
+      "metadata": {
+        "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"]
+      }
+    },
+    {
+      "type": "opinion_similarity",
+      "title": "Opinion Similarity Matrix",
+      "description": "Semantic similarity between agents' final opinions",
+      "data": {
+        "matrix": [
+          [1.0, 0.23],
+          [0.23, 1.0]
+        ],
+        "similarity_pairs": {
+          "Sarah Mitchell_vs_Sarah Mitchell": 1.0,
+          "Sarah Mitchell_vs_James Thompson": 0.23,
+          "James Thompson_vs_Sarah Mitchell": 0.23,
+          "James Thompson_vs_James Thompson": 1.0
+        }
+      },
+      "metadata": {
+        "speaking_agents": ["Sarah Mitchell", "James Thompson"],
+        "similarity_range": {"min": 0.0, "max": 1.0},
+        "note": "Higher values indicate more similar opinions. Only agents who spoke are included."
+      }
     }
-  },
-  "participation_stats": {
-    "total_interventions": {
-      "Sarah Mitchell": 2,
-      "James Thompson": 2,
-      "Maria Lopez": 1
-    },
-    "total_engagements": {
-      "Sarah Mitchell": 3,
-      "James Thompson": 2,
-      "Maria Lopez": 4
-    },
-    "engagement_rates": {
-      "Sarah Mitchell": 0.6,
-      "James Thompson": 0.4,
-      "Maria Lopez": 0.8
-    },
-    "participation_percentages": {
-      "Sarah Mitchell": 40.0,
-      "James Thompson": 40.0,
-      "Maria Lopez": 20.0
-    },
-    "total_turns": 5
-  },
-  "opinion_similarity": {
-    "matrix": [
-      [1.0, 0.23, 0.87],
-      [0.23, 1.0, 0.34],
-      [0.87, 0.34, 1.0]
-    ],
-    "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"]
-  },
-  "computed_at": "2025-09-26T10:30:00"
+  ]
 }
 ```
 
+**Features:**
+- **Idempotent**: Calling multiple times returns the same cached results
+- **Comprehensive Analytics**: Includes engagement patterns, participation stats, and opinion similarity
+- **Performance Optimized**: Results are cached in database after first computation
+
 **Requirements:**
 - Simulation must have `status: "finished"`
-- Analytics are computed once and cached for performance
+
+**Response Fields:**
+- `run_id`: UUID of the simulation run
+- `computed_at`: Timestamp when analytics were computed
+- `analytics`: Array of individual analytics objects, each containing:
+  - `type`: Analytics type identifier (e.g., "engagement_matrix", "participation_stats", "opinion_similarity")
+  - `title`: Human-readable title for the analytics
+  - `description`: Description of what the analytics show
+  - `data`: The actual analytics data (format varies by type)
+  - `metadata`: Additional context and configuration for rendering the analytics
+
+---
+
+#### `GET /simulations/{sim_id}/analytics`
+
+Checks if analytics exist for a simulation without triggering computation. Returns existing analytics data in the same format as the analyze endpoint, but only if analytics have already been computed.
+
+**Path Parameters:**
+- `sim_id` (string): Simulation ID
+
+**Response:**
+```json
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440000",
+  "computed_at": "2025-09-26T10:30:00",
+  "analytics": [
+    {
+      "type": "engagement_matrix",
+      "title": "Agent Engagement Matrix",
+      "description": "Shows agent activity patterns across debate turns",
+      "data": [
+        [2, 0, 1, 0, 1],
+        [1, 2, 0, 1, 0],
+        [0, 1, 2, 1, 1]
+      ],
+      "metadata": {
+        "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"],
+        "turn_count": 5,
+        "legend": {
+          "0": "inactive",
+          "1": "engaged",
+          "2": "speaking"
+        }
+      }
+    },
+    {
+      "type": "participation_stats",
+      "title": "Participation Statistics",
+      "description": "Agent intervention counts, engagement rates, and participation percentages",
+      "data": {
+        "total_interventions": {
+          "Sarah Mitchell": 2,
+          "James Thompson": 2,
+          "Maria Lopez": 1
+        },
+        "total_engagements": {
+          "Sarah Mitchell": 3,
+          "James Thompson": 2,
+          "Maria Lopez": 4
+        },
+        "engagement_rates": {
+          "Sarah Mitchell": 0.6,
+          "James Thompson": 0.4,
+          "Maria Lopez": 0.8
+        },
+        "participation_percentages": {
+          "Sarah Mitchell": 40.0,
+          "James Thompson": 40.0,
+          "Maria Lopez": 20.0
+        },
+        "total_turns": 5
+      },
+      "metadata": {
+        "agent_names": ["Sarah Mitchell", "James Thompson", "Maria Lopez"]
+      }
+    },
+    {
+      "type": "opinion_similarity",
+      "title": "Opinion Similarity Matrix",
+      "description": "Semantic similarity between agents' final opinions",
+      "data": {
+        "matrix": [
+          [1.0, 0.23],
+          [0.23, 1.0]
+        ],
+        "similarity_pairs": {
+          "Sarah Mitchell_vs_Sarah Mitchell": 1.0,
+          "Sarah Mitchell_vs_James Thompson": 0.23,
+          "James Thompson_vs_Sarah Mitchell": 0.23,
+          "James Thompson_vs_James Thompson": 1.0
+        }
+      },
+      "metadata": {
+        "speaking_agents": ["Sarah Mitchell", "James Thompson"],
+        "similarity_range": {"min": 0.0, "max": 1.0},
+        "note": "Higher values indicate more similar opinions. Only agents who spoke are included."
+      }
+    }
+  ]
+}
+```
+
+**Features:**
+- **Read-only**: Does not trigger analytics computation or modify any data
+- **Same Format**: Returns identical response format as `POST /simulations/{sim_id}/analyze`
+- **Existence Check**: Only returns data if analytics already exist
+
+**Error Responses:**
+- `400`: Invalid simulation ID format
+- `404`: Simulation not found
+- `404`: No analytics found for this simulation
 
 **Use Cases:**
-- Generate engagement heatmaps showing who participated when
-- Create participation charts showing speaking time distribution
-- Build opinion similarity matrices/clustermaps for consensus analysis
-- Analyze debate dynamics and agent interaction patterns
+- Check if analytics have been computed without accidentally triggering new computation
+- Retrieve existing analytics results for display/visualization
+- Validate analytics existence before performing operations that depend on analytics data
+
+**Analytics Data Explanation:**
+- **Engagement Matrix**: Shows agent activity for each debate turn (0=inactive, 1=engaged, 2=speaking)
+- **Participation Stats**: Quantifies speaking time, engagement rates, and participation percentages
+- **Opinion Similarity**: Matrix showing semantic similarity between agents' final opinions (0.0-1.0)
 
 **Notes:**
-- `opinion_similarity` matrix is only included if embedding model is available
+- `opinion_similarity` matrix is only included if embedding model was available during computation
 - Similarity values range from 0.0 (completely different) to 1.0 (identical)
 - Matrix is symmetric with 1.0 on diagonal (self-similarity)
 

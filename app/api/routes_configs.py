@@ -47,9 +47,6 @@ def log_config_object(operation: str, config: Config, additional_info: str = "",
                 ]
             except Exception as e:
                 config_dict["agent_snapshots"] = f"Error loading snapshots: {e}"
-        
-        logger.info(f"CONFIG {operation.upper()}: {additional_info}")
-        logger.info(f"Config object: {json.dumps(config_dict, indent=2)}")
     except Exception as e:
         logger.error(f"Failed to log config object: {e}")
         logger.info(f"CONFIG {operation.upper()}: {additional_info} (logging failed)")
