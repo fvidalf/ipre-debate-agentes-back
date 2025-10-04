@@ -4,8 +4,8 @@ from sqlmodel import Session
 
 from app.api.schemas import ConfigResponse, AgentSnapshotResponse, CanvasPosition
 from app.services.config_service import get_config_version
-from app.models import Config
-from app.dependencies import get_db
+from app.models import Config, User
+from app.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/config-versions", tags=["config-versions"])
 
@@ -13,22 +13,27 @@ router = APIRouter(prefix="/config-versions", tags=["config-versions"])
 async def get_config_version_endpoint(
     config_id: str,
     version_number: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Get a specific config version by config ID and version number.
     This returns the complete config state as it existed at that version,
     including all agents and their configurations.
+    Only the config owner can access their config versions.
     """
     try:
         config_uuid = UUID(config_id)
     except ValueError:
         raise HTTPException(400, "Invalid config ID format")
     
-    # Get the config to check if it exists and get metadata
+    # Get the config to check if it exists and verify ownership
     config = db.get(Config, config_uuid)
     if not config:
         raise HTTPException(404, "Config not found")
+    
+    if config.owner_user_id != current_user.id:
+        raise HTTPException(404, "Config not found")  # Don't reveal that it exists but is not accessible
     
     # Get the version for the specific version number
     version = get_config_version(db, config_uuid, version_number)

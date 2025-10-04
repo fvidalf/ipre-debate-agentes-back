@@ -1,0 +1,7 @@
+# Bitácora de semana 8
+
+El trabajo de esta semana comenzó creando la vista de visualizaciones. Luego de pequeñas adaptaciones y correcciones del formato del backend, además de modificaciones en los endpoints para permitirle al endpoint hacer un fetch sin crear las visualizaciones inmediatamente, se crearon los nuevos paneles, siguiendo el mismo estilo visual de la vista de simulación, reemplazando el canvas de simulación por la vista relevante. Además, se corrigió un error en el frontend para manejar correctamente las respuestas 404.
+
+Luego, se implementó el sistema de manejo de usuarios. Del lado del backend, esto involucró crear la autenticación sencilla en el backend basada en tokens de acceso, recibiendo un correo y una contraseña (luego encriptada). Se agregó una ruta de login y logout, sin sign-up. El registro se hace únicamente por consola, utilizando un script auxiliar en create_user.py. Adicionalmente, se configuraron los controladores que utilizaban tablas que requerían usuarios, para usar el usuario recibido. Todas las rutas salvo login se protegen para uso exclusivo de usuarios autenticados. 
+
+Del lado del frontend, el manejo de usuarios requirió una pequeña integración con el backend mediante los endpoints de login y logout y un contexto de auth, que redirige todo usuario no registrado a la vista de login. Se agregó el botón de logout a la vista my-debates.

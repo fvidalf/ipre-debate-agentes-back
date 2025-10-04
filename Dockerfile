@@ -38,6 +38,7 @@ RUN mkdir -p ${HF_HOME}
 
 # --- Copy app code ---
 COPY ./app ./app
+COPY ./scripts ./scripts
 COPY alembic.ini .
 COPY .env .
 

@@ -27,6 +27,7 @@ from app.api.routes_agents import router as agents_router
 from app.api.routes_config_templates import router as config_templates_router
 from app.api.routes_configs import router as configs_router
 from app.api.routes_config_versions import router as config_versions_router
+from app.api.routes_auth import router as auth_router
 from app.services import SimulationService
 from app.models import User
 
@@ -102,6 +103,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+app.include_router(auth_router)
 app.include_router(sim_router)
 app.include_router(agents_router)
 app.include_router(config_templates_router)

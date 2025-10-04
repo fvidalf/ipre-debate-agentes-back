@@ -7,8 +7,8 @@ from sqlmodel import Session, select
 
 from app.api.schemas import ConfigsListResponse, ConfigResponse, ConfigListItem, AgentSnapshotResponse, RunsListResponse, RunListItem, CreateConfigRequest, UpdateConfigRequest
 from app.services.config_service import update_config_manual
-from app.models import Config, ConfigAgent, Run
-from app.dependencies import get_db
+from app.models import Config, ConfigAgent, Run, User
+from app.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/configs", tags=["configs"])
 logger = logging.getLogger(__name__)
@@ -54,19 +54,21 @@ def log_config_object(operation: str, config: Config, additional_info: str = "",
 @router.get("", response_model=ConfigsListResponse)
 async def get_configs(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=100, description="Number of configs to return"),
     offset: int = Query(0, ge=0, description="Number of configs to skip")
 ):
     """
-    Get all configs. Since authentication is not implemented yet, all configs are returned.
+    Get configs for the authenticated user.
     Configs are always private/personal (unlike templates which can be public).
     """
     try:
-        logger.info(f"RETRIEVE CONFIGS: Getting configs with limit={limit}, offset={offset}")
+        logger.info(f"RETRIEVE CONFIGS: Getting configs for user {current_user.email} with limit={limit}, offset={offset}")
         
-        # Query for all configs (no visibility filtering - configs are always private)
+        # Query for configs owned by the current user
         stmt = (
             select(Config)
+            .where(Config.owner_user_id == current_user.id)
             .order_by(Config.updated_at.desc())
             .offset(offset)
             .limit(limit)
@@ -78,8 +80,8 @@ async def get_configs(
         for i, config in enumerate(configs):
             log_config_object("RETRIEVE", config, f"Config {i+1}/{len(configs)} in list", db)
         
-        # Count total configs
-        count_stmt = select(Config)
+        # Count total configs for this user
+        count_stmt = select(Config).where(Config.owner_user_id == current_user.id)
         total_count = len(db.exec(count_stmt).all())
         
         # Convert to response format (no agents in list view)
@@ -107,17 +109,18 @@ async def get_configs(
         raise HTTPException(500, f"Failed to fetch configs: {str(e)}")
 
 @router.post("", response_model=ConfigResponse)
-async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db)):
+async def create_config(
+    req: CreateConfigRequest, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Create a new blank/default config. Returns the config ID and default values.
     This is used by the frontend editor which requires a config ID to operate.
     """
     try:
-        logger.info(f"CREATE CONFIG: Starting creation of new config")
+        logger.info(f"CREATE CONFIG: Starting creation of new config for user {current_user.email}")
         logger.info(f"Create request: {req}")
-        
-        # Temporary user ID until auth is implemented
-        temp_user_id = UUID("00000000-0000-0000-0000-000000000000")
         
         # Create a default config with minimal parameters
         default_parameters = {
@@ -130,7 +133,7 @@ async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db))
         }
         
         config = Config(
-            owner_user_id=temp_user_id,
+            owner_user_id=current_user.id,
             name="Untitled Config",
             description=None,
             parameters=default_parameters,
@@ -164,11 +167,13 @@ async def create_config(req: CreateConfigRequest, db: Session = Depends(get_db))
 async def update_config(
     config_id: str,
     req: UpdateConfigRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Update a config with new values. Only provided fields are updated.
     Increments version number if parameters change.
+    Only the config owner can update their configs.
     """
     try:
         config_uuid = UUID(config_id)
@@ -177,15 +182,20 @@ async def update_config(
         raise HTTPException(400, "Invalid config ID format")
     
     try:
-        logger.info(f"UPDATE CONFIG: Starting update for config_id={config_id}")
+        logger.info(f"UPDATE CONFIG: Starting update for config_id={config_id} by user {current_user.email}")
         logger.info(f"Update request: {json.dumps(req.dict(exclude_unset=True), indent=2)}")
         
-        # Log the config BEFORE update
+        # Log the config BEFORE update and verify ownership
         existing_config = db.get(Config, config_uuid)
-        if existing_config:
-            log_config_object("UPDATE_BEFORE", existing_config, f"Config before update (ID: {config_id})", db)
-        else:
+        if not existing_config:
             logger.warning(f"UPDATE CONFIG: Config not found with ID={config_id}")
+            raise HTTPException(404, "Config not found")
+        
+        if existing_config.owner_user_id != current_user.id:
+            logger.warning(f"UPDATE CONFIG: User {current_user.email} attempted to update config {config_id} they don't own")
+            raise HTTPException(404, "Config not found")  # Don't reveal that it exists but is not accessible
+        
+        log_config_object("UPDATE_BEFORE", existing_config, f"Config before update (ID: {config_id})", db)
         
         # Update config using the manual update function
         config = update_config_manual(
@@ -249,10 +259,11 @@ async def update_config(
 @router.get("/{config_id}", response_model=ConfigResponse)
 async def get_config(
     config_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Get a specific config by ID. Since auth is not implemented, any config can be accessed.
+    Get a specific config by ID. Only the owner can access their configs.
     """
     try:
         config_uuid = UUID(config_id)
@@ -261,13 +272,17 @@ async def get_config(
         raise HTTPException(400, "Invalid config ID format")
     
     try:
-        logger.info(f"RETRIEVE SINGLE CONFIG: Getting config with ID={config_id}")
+        logger.info(f"RETRIEVE SINGLE CONFIG: Getting config with ID={config_id} for user {current_user.email}")
         
-        # Get the config (no visibility filtering needed for configs)
+        # Get the config and verify ownership
         config = db.get(Config, config_uuid)
         if not config:
             logger.warning(f"RETRIEVE SINGLE CONFIG: Config not found with ID={config_id}")
             raise HTTPException(404, "Config not found")
+        
+        if config.owner_user_id != current_user.id:
+            logger.warning(f"RETRIEVE SINGLE CONFIG: User {current_user.email} attempted to access config {config_id} they don't own")
+            raise HTTPException(404, "Config not found")  # Don't reveal that it exists but is not accessible
         
         log_config_object("RETRIEVE_SINGLE", config, f"Single config retrieval (ID: {config_id})", db)
         
@@ -313,22 +328,27 @@ async def get_config(
 async def get_config_runs(
     config_id: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=100, description="Number of runs to return"),
     offset: int = Query(0, ge=0, description="Number of runs to skip")
 ):
     """
     Get all runs for a specific config, regardless of version.
     Shows which version each run used and whether it's on the latest version.
+    Only the config owner can access their runs.
     """
     try:
         config_uuid = UUID(config_id)
     except ValueError:
         raise HTTPException(400, "Invalid config ID format")
     
-    # Verify config exists and is accessible (no filtering needed - all configs accessible without auth)
+    # Verify config exists and user owns it
     config = db.get(Config, config_uuid)
     if not config:
         raise HTTPException(404, "Config not found")
+    
+    if config.owner_user_id != current_user.id:
+        raise HTTPException(404, "Config not found")  # Don't reveal that it exists but is not accessible
     
     # Get runs for this config
     stmt = (
@@ -365,8 +385,14 @@ async def get_config_runs(
 
 
 @router.delete("/{config_id}")
-async def delete_config(config_id: str, db: Session = Depends(get_db)):
-    """Delete a config and all related entities (runs, events, summaries, analytics, versions, agents)"""
+async def delete_config(
+    config_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a config and all related entities (runs, events, summaries, analytics, versions, agents)
+    Only the config owner can delete their configs.
+    """
     from app.models import ConfigVersion, RunEvent, Summary, RunAnalytics
     from sqlmodel import select, delete
     
@@ -375,12 +401,15 @@ async def delete_config(config_id: str, db: Session = Depends(get_db)):
     except ValueError:
         raise HTTPException(400, "Invalid config ID format")
     
-    # Verify config exists
+    # Verify config exists and user owns it
     config = db.get(Config, config_uuid)
     if not config:
         raise HTTPException(404, "Config not found")
     
-    logger.info(f"Deleting config {config_id} ({config.name}) and all related entities")
+    if config.owner_user_id != current_user.id:
+        raise HTTPException(404, "Config not found")  # Don't reveal that it exists but is not accessible
+    
+    logger.info(f"User {current_user.email} deleting config {config_id} ({config.name}) and all related entities")
     
     try:
         # Get all runs for this config to delete their related data

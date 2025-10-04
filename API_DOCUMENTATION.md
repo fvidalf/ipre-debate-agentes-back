@@ -12,7 +12,77 @@ http://localhost:8000
 
 ## Authentication
 
-No authentication required.
+The API uses JWT token-based authentication via httpOnly cookies for all endpoints except login.
+
+### Login
+
+#### `POST /auth/login`
+
+Login with email and password to receive authentication via httpOnly cookie.
+
+**Request Body (form-data):**
+```
+username: test@example.com
+password: password123
+```
+
+**Response:**
+```json
+{
+  "message": "Login successful",
+  "user": {
+    "email": "test@example.com",
+    "id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**Cookie Set:**
+- `access_token`: JWT token (httpOnly, secure in production)
+- `max-age`: 3600 seconds (1 hour)
+
+### Logout
+
+#### `POST /auth/logout`
+
+Logout and clear the authentication cookie.
+
+**Request Body:**
+```
+(No body required)
+```
+
+**Response:**
+```json
+{
+  "message": "Logout successful"
+}
+```
+
+**Cookie Cleared:**
+- `access_token`: Cookie is set to empty value with immediate expiration
+
+### Using Authentication
+
+**All API requests require authentication via httpOnly cookies:**
+
+```javascript
+// Include credentials to send cookies
+fetch('/api/endpoint', {
+  credentials: 'include'
+});
+```
+
+### Protected Endpoints
+
+**All endpoints require authentication except:**
+- `POST /auth/login`
+- `POST /auth/logout`
+
+**User Ownership:**
+- Users can only access/modify their own configs, simulations, and private templates
+- Public agent/config templates are visible to all authenticated users
+- Private templates are only visible to their owners
 
 ---
 
@@ -35,13 +105,7 @@ No authentication required.
 
 #### `GET /simulations/models`
 
-Retrieves availabl## Config Versions
-
-Config versions provide access to historical versions of configs, preserving the complete state (parameters + agents) at each version. This enables viewing and "collapsing" past config versions into new editable configs.
-
-### GET /config-versions/{config_id}/versions/{version_number}
-
-Retrieves a specific config version by config ID and version number. Returns the complete config state as it existed at that version, including all agents and their configurations.age models for agent configuration.
+Retrieves available models for agent configuration.
 
 **Response:**
 ```json
@@ -69,6 +133,8 @@ Retrieves a specific config version by config ID and version number. Returns the
 ## Agent Templates
 
 #### `GET /agents/templates`
+
+Retrieves agent templates: public templates plus user's private templates.
 
 Retrieves public agent templates.
 
@@ -106,7 +172,7 @@ Retrieves public agent templates.
 
 #### `GET /agents/templates/{agent_id}`
 
-Retrieves a specific agent template by ID.
+Retrieves a specific agent template by ID. Shows public templates or user's private templates.
 
 **Path Parameters:**
 - `agent_id` (string): UUID of the agent template
@@ -142,7 +208,7 @@ Retrieves a specific agent template by ID.
 
 #### `GET /config-templates`
 
-Retrieves public config templates that can be used for simulations. These are immutable blueprints that define debate parameters and agent configurations.
+Retrieves config templates: public templates plus user's private templates. These are immutable blueprints that define debate parameters and agent configurations.
 
 **Query Parameters:**
 - `limit` (int, optional): Number of templates to return (1-100, default: 50)
@@ -173,7 +239,7 @@ Retrieves public config templates that can be used for simulations. These are im
 
 #### `GET /config-templates/{template_id}`
 
-Retrieves a specific public config template by ID.
+Retrieves a specific config template by ID. Shows public templates or user's private templates.
 
 **Path Parameters:**
 - `template_id` (string): UUID of the config template
@@ -235,7 +301,7 @@ Configs are editable debate configurations that contain parameters and associate
 
 #### `GET /configs`
 
-Retrieves public configs that can be used for simulations. These are editable instances that can be modified and used as starting points for debates.
+Retrieves configs for the authenticated user. These are editable instances that can be modified and used as starting points for debates.
 
 **Query Parameters:**
 - `limit` (int, optional): Number of configs to return (1-100, default: 50)

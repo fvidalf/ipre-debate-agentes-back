@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from sqlmodel import Session, select
 
 from app.api.schemas import AgentTemplatesListResponse, AgentTemplateResponse
-from app.models import Agent
-from app.dependencies import get_db
+from app.models import Agent, User
+from app.dependencies import get_db, get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -16,21 +16,24 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 @router.get("/templates", response_model=AgentTemplatesListResponse)
 async def get_agent_templates(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=100, description="Number of templates to return"),
     offset: int = Query(0, ge=0, description="Number of templates to skip")
 ):
     """
-    Get public agent templates that can be used in simulations.
-    Since authentication is not implemented yet, only public templates are returned.
+    Get agent templates: public templates plus user's private templates.
+    Authentication required for platform access.
     """
     try:
-        logger.info(f"Getting agent templates with limit={limit}, offset={offset}")
+        logger.info(f"Getting agent templates for user {current_user.email} with limit={limit}, offset={offset}")
         
-        # Query for public agents only (no owner_user_id and visibility = 'public')
+        # Query for public agents AND user's private agents
         stmt = (
             select(Agent)
-            .where(Agent.visibility == "public")
-            .where(Agent.owner_user_id.is_(None))
+            .where(
+                (Agent.visibility == "public") |
+                (Agent.owner_user_id == current_user.id)
+            )
             .order_by(Agent.created_at.desc())
             .offset(offset)
             .limit(limit)
@@ -40,11 +43,13 @@ async def get_agent_templates(
         agents = db.exec(stmt).all()
         logger.info(f"Found {len(agents)} agents")
         
-        # Count total public templates
+        # Count total templates (public + user's private)
         count_stmt = (
             select(Agent)
-            .where(Agent.visibility == "public")
-            .where(Agent.owner_user_id.is_(None))
+            .where(
+                (Agent.visibility == "public") |
+                (Agent.owner_user_id == current_user.id)
+            )
         )
         logger.debug(f"Executing count query: {count_stmt}")
         total_count = len(db.exec(count_stmt).all())
@@ -78,12 +83,14 @@ async def get_agent_templates(
 @router.get("/templates/{agent_id}", response_model=AgentTemplateResponse)
 async def get_agent_template(
     agent_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Get a specific public agent template by ID.
+    Get a specific agent template by ID. Shows public templates or user's private templates.
+    Authentication required for platform access.
     """
-    logger.info(f"Getting agent template with ID: {agent_id}")
+    logger.info(f"Getting agent template with ID: {agent_id} for user {current_user.email}")
     try:
         agent_uuid = UUID(agent_id)
     except ValueError:
@@ -91,14 +98,19 @@ async def get_agent_template(
         raise HTTPException(400, "Invalid agent ID format")
     
     try:
-        # Get the agent, but only if it's public and has no owner
+        # Get the agent
         agent = db.get(Agent, agent_uuid)
         if not agent:
             logger.warning(f"Agent template not found: {agent_uuid}")
             raise HTTPException(404, "Agent template not found")
         
-        if agent.visibility != "public" or agent.owner_user_id is not None:
-            logger.warning(f"Agent template not public or has owner: {agent_uuid}")
+        # Check access: public templates or user's own private templates
+        if agent.visibility == "public" or agent.owner_user_id == current_user.id:
+            # Accessible: public template or user's own private template
+            pass
+        else:
+            # Private template belonging to someone else - not accessible
+            logger.warning(f"Agent template access denied for user {current_user.email}: {agent_uuid}")
             raise HTTPException(404, "Agent template not found")  # Don't reveal private agents exist
         
         logger.info(f"Successfully retrieved agent template: {agent.name}")

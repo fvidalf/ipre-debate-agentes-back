@@ -7,8 +7,8 @@ from sqlmodel import Session, select
 from app.api.schemas import CreateSimRequest, AvailableModelsResponse, AvailableModel, RunResponse
 from app.services.config_service import create_or_update_config
 from app.services.analytics_service import AnalyticsService
-from app.models import Run, RunEvent, Config
-from app.dependencies import get_db
+from app.models import Run, RunEvent, Config, User
+from app.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
 
@@ -19,8 +19,8 @@ def get_service(request: Request):
     return svc
 
 @router.get("/models", response_model=AvailableModelsResponse)
-async def get_available_models_endpoint():
-    """Get the list of available models for agent configuration"""
+async def get_available_models_endpoint(current_user: User = Depends(get_current_user)):
+    """Get the list of available models for agent configuration. Authentication required."""
     from app.classes.model_config import fetch_openrouter_models, DEFAULT_MODEL
     
     try:
@@ -39,13 +39,15 @@ async def get_available_models_endpoint():
         raise HTTPException(500, f"Failed to fetch available models: {str(e)}")
 
 @router.post("")
-async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_service), db: Session = Depends(get_db)):
+async def create_and_run_simulation(
+    req: CreateSimRequest, 
+    svc=Depends(get_service), 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Create simulation and start running it immediately in the background"""
     if len(req.agents) == 0:
         raise HTTPException(400, "At least one agent must be provided")
-    
-    # Temporary user ID until auth is implemented
-    temp_user_id = UUID("00000000-0000-0000-0000-000000000000")
     
     # Handle config auto-save if config_id is provided
     config = None
@@ -66,7 +68,7 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
                     "embedding_config": req.embedding_config
                 },
                 agents=req.agents,
-                user_id=temp_user_id
+                user_id=current_user.id
             )
         except ValueError as e:
             raise HTTPException(400, str(e))
@@ -114,7 +116,7 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
     
     # Create Run record in database
     run = Run(
-        user_id=temp_user_id,
+        user_id=current_user.id,
         config_id=config.id if config else None,
         config_version_when_run=config.version_number if config else None,
         config_version_id=config_version_record.id,
@@ -134,17 +136,24 @@ async def create_and_run_simulation(req: CreateSimRequest, svc=Depends(get_servi
     }
 
 @router.get("/{sim_id}", response_model=RunResponse)
-async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
-    """Get current simulation state and progress"""
+async def get_simulation_status(
+    sim_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get current simulation state and progress. Only the run owner can access."""
     try:
         run_uuid = UUID(sim_id)
     except ValueError:
         raise HTTPException(400, "Invalid simulation ID format")
     
-    # Get run status
+    # Get run status and verify ownership
     run = db.get(Run, run_uuid)
     if not run:
         raise HTTPException(404, "Simulation not found")
+    
+    if run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")  # Don't reveal that it exists but is not accessible
     
     # Get config name and check if version is latest
     config_name = None
@@ -206,8 +215,12 @@ async def get_simulation_status(sim_id: str, db: Session = Depends(get_db)):
     )
 
 @router.post("/{sim_id}/stop")
-async def stop_simulation(sim_id: str, db: Session = Depends(get_db)):
-    """Stop a running simulation"""
+async def stop_simulation(
+    sim_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Stop a running simulation. Only the run owner can stop their simulations."""
     try:
         run_uuid = UUID(sim_id)
     except ValueError:
@@ -216,6 +229,9 @@ async def stop_simulation(sim_id: str, db: Session = Depends(get_db)):
     run = db.get(Run, run_uuid)
     if not run:
         raise HTTPException(404, "Simulation not found")
+    
+    if run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")  # Don't reveal that it exists but is not accessible
     
     if run.finished:
         raise HTTPException(400, "Simulation already finished")
@@ -233,8 +249,13 @@ async def stop_simulation(sim_id: str, db: Session = Depends(get_db)):
     }
 
 @router.post("/{sim_id}/vote")
-async def vote_simulation(sim_id: str, svc=Depends(get_service), db: Session = Depends(get_db)):
-    """Trigger voting phase for a completed simulation"""
+async def vote_simulation(
+    sim_id: str, 
+    svc=Depends(get_service), 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Trigger voting phase for a completed simulation. Only the run owner can trigger voting."""
     from app.api.schemas import VotingResponse, IndividualVote
     from app.models import Summary, ConfigAgent
     from sqlmodel import select
@@ -247,6 +268,9 @@ async def vote_simulation(sim_id: str, svc=Depends(get_service), db: Session = D
     run = db.get(Run, run_uuid)
     if not run:
         raise HTTPException(404, "Simulation not found")
+    
+    if run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")  # Don't reveal that it exists but is not accessible
     
     if not run.finished:
         raise HTTPException(400, "Simulation must be finished before voting")
@@ -293,8 +317,12 @@ async def vote_simulation(sim_id: str, svc=Depends(get_service), db: Session = D
 
 
 @router.get("/{sim_id}/votes")
-async def check_votes(sim_id: str, db: Session = Depends(get_db)):
-    """Check if votes exist for a simulation without triggering voting"""
+async def check_votes(
+    sim_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check if votes exist for a simulation without triggering voting. Only the run owner can access."""
     from app.api.schemas import VotingResponse, IndividualVote
     from app.models import Summary
     from sqlmodel import select
@@ -307,6 +335,9 @@ async def check_votes(sim_id: str, db: Session = Depends(get_db)):
     run = db.get(Run, run_uuid)
     if not run:
         raise HTTPException(404, "Simulation not found")
+    
+    if run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")  # Don't reveal that it exists but is not accessible
     
     # Check if voting exists
     existing_summary_stmt = select(Summary).where(Summary.run_id == run_uuid)
@@ -337,8 +368,12 @@ async def check_votes(sim_id: str, db: Session = Depends(get_db)):
     )
 
 @router.get("/{sim_id}/analytics")
-async def check_analytics(sim_id: str, db: Session = Depends(get_db)):
-    """Check if analytics exist for a simulation without triggering computation"""
+async def check_analytics(
+    sim_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check if analytics exist for a simulation without triggering computation. Only the run owner can access."""
     from app.models import RunAnalytics
     
     try:
@@ -349,6 +384,9 @@ async def check_analytics(sim_id: str, db: Session = Depends(get_db)):
     run = db.get(Run, run_uuid)
     if not run:
         raise HTTPException(404, "Simulation not found")
+    
+    if run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")  # Don't reveal that it exists but is not accessible
     
     # Check if analytics already exist
     existing_analytics = db.query(RunAnalytics).filter(RunAnalytics.run_id == run_uuid).first()
@@ -363,17 +401,26 @@ async def check_analytics(sim_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{sim_id}/analyze")
-async def analyze_simulation(sim_id: str, db: Session = Depends(get_db)):
-    """Compute analytics for a completed simulation (engagement matrix, participation stats, opinion similarity)"""
+async def analyze_simulation(
+    sim_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Compute analytics for a completed simulation (engagement matrix, participation stats, opinion similarity).
+    Only the run owner can analyze their simulations.
+    """
     try:
         run_uuid = UUID(sim_id)
     except ValueError:
         raise HTTPException(400, "Invalid simulation ID format")
     
-    # Get run to find config for embedding settings
+    # Get run to find config for embedding settings and verify ownership
     run = db.get(Run, run_uuid)
     if not run:
         raise HTTPException(404, "Simulation not found")
+    
+    if run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")  # Don't reveal that it exists but is not accessible
     
     # Create sentence embedder using default config (for similarity matrix)
     sentence_embedder = None

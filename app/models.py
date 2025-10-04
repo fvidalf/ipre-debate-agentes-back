@@ -16,7 +16,7 @@ class User(SQLModel, table=True):
     __tablename__ = "users"
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     email: str = Field(index=True, nullable=False)
-    password_hash: Optional[str] = None          # for DIY auth; null if external
+    password_hash: str = Field(nullable=False)   # required for minimal auth
     is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

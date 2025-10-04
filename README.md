@@ -81,6 +81,51 @@ docker compose exec api python -m app.database.cli seed
 
 ## Development
 
+### Authentication
+
+The API uses JWT token-based authentication. For development and testing, a default user is created during seeding:
+
+- **Email**: `test@example.com`
+- **Password**: `password123`
+
+#### Creating Additional Users
+
+Use the interactive user creation script:
+
+```bash
+python scripts/create_user.py
+```
+
+Or create users programmatically:
+
+```python
+from sqlmodel import Session
+from app.models import User
+from app.auth import hash_password
+
+with Session(engine) as session:
+    user = User(
+        email="user@example.com",
+        password_hash=hash_password("mypassword"),
+        is_active=True
+    )
+    session.add(user)
+    session.commit()
+```
+
+#### Testing Authentication
+
+```bash
+# Login to get token
+curl -X POST "http://localhost:8000/auth/login" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "username=test@example.com&password=password123"
+
+# Use token in protected endpoints
+curl -H "Authorization: Bearer <your-token>" \
+     "http://localhost:8000/protected-endpoint"
+```
+
 ### Environment
 - **Database**: PostgreSQL (Docker)
 - **Python**: 3.8+ with SQLModel/FastAPI
