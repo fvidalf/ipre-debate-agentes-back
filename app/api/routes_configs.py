@@ -209,7 +209,8 @@ async def update_config(
             bias=req.bias,
             stance=req.stance,
             embedding_model=req.embedding_model,
-            embedding_config=req.embedding_config
+            embedding_config=req.embedding_config,
+            max_interventions_per_agent=req.max_interventions_per_agent
         )
         
         db.commit()

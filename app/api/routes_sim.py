@@ -65,7 +65,8 @@ async def create_and_run_simulation(
                     "bias": req.bias,
                     "stance": req.stance,
                     "embedding_model": req.embedding_model,
-                    "embedding_config": req.embedding_config
+                    "embedding_config": req.embedding_config,
+                    "max_interventions_per_agent": req.max_interventions_per_agent
                 },
                 agents=req.agents,
                 user_id=current_user.id
@@ -111,7 +112,8 @@ async def create_and_run_simulation(
             bias=req.bias,
             stance=req.stance,
             embedding_model=req.embedding_model,
-            embedding_config=req.embedding_config
+            embedding_config=req.embedding_config,
+            max_interventions_per_agent=req.max_interventions_per_agent
         )
     
     # Create Run record in database
@@ -238,7 +240,7 @@ async def stop_simulation(
     
     # Mark as stopped - background task will pick this up
     run.status = "stopped"
-    run.stopped_reason = "user_requested"
+    run.stopped_reason = "Manually stopped by user"
     db.add(run)
     db.commit()
     

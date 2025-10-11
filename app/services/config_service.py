@@ -20,6 +20,7 @@ def create_config_version(
     stance: str = "",
     embedding_model: str = "onnx_minilm",
     embedding_config: Optional[dict] = None,
+    max_interventions_per_agent: Optional[int] = None,
     **kwargs
 ) -> ConfigVersion:
     """Create a ConfigVersion record with complete config state."""
@@ -30,6 +31,7 @@ def create_config_version(
         "stance": stance,
         "embedding_model": embedding_model,
         "embedding_config": embedding_config or {},
+        "max_interventions_per_agent": max_interventions_per_agent,
         **kwargs
     }
     
@@ -180,7 +182,8 @@ def update_config_manual(
     bias: Optional[List[float]] = None,
     stance: Optional[str] = None,
     embedding_model: Optional[str] = None,
-    embedding_config: Optional[dict] = None
+    embedding_config: Optional[dict] = None,
+    max_interventions_per_agent: Optional[int] = None
 ) -> Config:
     """
     Manually update a config (for PATCH endpoint). 
@@ -217,6 +220,8 @@ def update_config_manual(
         current_params["embedding_model"] = embedding_model
     if embedding_config is not None:
         current_params["embedding_config"] = embedding_config
+    if max_interventions_per_agent is not None:
+        current_params["max_interventions_per_agent"] = max_interventions_per_agent
     
     # Handle agents update
     if agents is not None:

@@ -388,7 +388,8 @@ Updates a config with new values. Only provided fields are updated. Increments v
   "max_iters": 15,
   "bias": [0.5, -0.3],
   "stance": "pro-increase",
-  "embedding_model": "onnx_minilm"
+  "embedding_model": "onnx_minilm",
+  "max_interventions_per_agent": 2
 }
 ```
 
@@ -683,7 +684,8 @@ Creates and starts a new debate simulation.
   "embedding_model": "onnx_minilm",
   "embedding_config": {
     "model_name": "openai/text-embedding-3-small"
-  }
+  },
+  "max_interventions_per_agent": 3
 }
 ```
 
@@ -703,6 +705,7 @@ Creates and starts a new debate simulation.
 - `stance` (string): Initial stance
 - `embedding_model` (string, default: "onnx_minilm"): Embedding model type
 - `embedding_config` (object): Additional embedding configuration
+- `max_interventions_per_agent` (integer, optional): Maximum number of times each agent can speak during the debate. If not provided, agents can speak unlimited times (subject to other stopping conditions)
 
 **Auto-Save Behavior:**
 - If `config_id` is provided, the backend will check if the simulation parameters differ from the stored config
@@ -769,6 +772,13 @@ Retrieves simulation status and progress.
 - `"finished"`: Completed successfully
 - `"failed"`: Encountered an error
 - `"stopped"`: Manually stopped
+
+**Stopped Reason Values:**
+- `"Maximum iterations limit reached"`: Maximum iterations limit reached
+- `"Agent opinions have converged too much"`: Agent opinions have converged too much
+- `"No agents want to continue the debate"`: No agents want to speak further
+- `"All agents have reached their maximum intervention limit"`: All agents have reached their maximum intervention limit
+- `"Manually stopped by user"`: Manually stopped by user
 
 ---
 

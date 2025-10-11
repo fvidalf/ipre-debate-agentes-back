@@ -1,18 +1,123 @@
-from typing import List, Tuple, Optional
+from typing import Optional, Tuple, Dict, Any
 import dspy
 import numpy as np
 from .memory import FixedMemory
 from .nlp import SentenceEmbedder
 
 
+# ---------------------------------------------------------------------------
+#  DSPy Signatures
+# ---------------------------------------------------------------------------
+
+class AgentIntentSignature(dspy.Signature):
+    """Lightweight predictor: Based on the last opinion, should the agent respond at all?"""
+    topic: str = dspy.InputField(desc="The debate topic or current question.")
+    context: str = dspy.InputField(desc="Recent discussion context (short).")
+    persona_description: str = dspy.InputField(desc="Agent's background and worldview.")
+    last_speaker: str = dspy.InputField(desc="Name of the previous speaker.")
+    last_opinion: str = dspy.InputField(desc="What the last speaker said.")
+    interventions_remaining: str = dspy.InputField(desc="Number of interventions left ('unlimited' or a number like '3 remaining').")
+
+    desire_to_speak: float = dspy.OutputField(desc="How strongly this agent wants to respond (0–1).")
+    raise_hand: bool = dspy.OutputField(desc="Whether the agent raises their hand to speak.")
+
+
+class AgentRespondSignature(dspy.Signature):
+    """Generate and self-assess a debate response for a political or philosophical simulation."""
+
+    # ---------- INPUTS ----------
+    topic: str = dspy.InputField(
+        desc="The current debate topic or question being discussed."
+    )
+    context: str = dspy.InputField(
+        desc="Recent conversation history and relevant context."
+    )
+    persona_description: str = dspy.InputField(
+        desc="Agent's personality, ideology, and worldview."
+    )
+    last_speaker: str = dspy.InputField(
+        desc="Name of the last speaker who contributed to the discussion."
+    )
+    last_opinion: str = dspy.InputField(
+        desc="What the last speaker said or argued."
+    )
+    interventions_remaining: str = dspy.InputField(
+        desc="Number of interventions left ('unlimited', 'last intervention', or a number like '3 remaining')."
+    )
+
+    # ---------- OUTPUTS ----------
+    # Targeted engagement fields
+    counter_target: str = dspy.OutputField(
+        desc="Quote or paraphrase the exact point addressed from last_opinion."
+    )
+    counter_type: str = dspy.OutputField(
+        desc="Type of engagement: rebuttal | support | reframe | extend."
+    )
+
+    # Main text
+    response: str = dspy.OutputField(
+        desc="The agent's written, persona-consistent response for this turn that uses counter_target."
+    )
+    tone: str = dspy.OutputField(
+        desc="Emotional tone or rhetorical style (analytical, passionate, confrontational, etc.)."
+    )
+    references_used: str = dspy.OutputField(
+        desc="Thinkers, historical events, or examples cited in the response."
+    )
+    stance_strength: str = dspy.OutputField(
+        desc="Qualitative measure of how strongly the agent expresses their view."
+    )
+
+    # Self-assessment fields (for proposal phase)
+    novelty_estimate: str = dspy.OutputField(
+        desc="Model’s self-estimate (0-1) of how novel this response is versus the agent’s last message."
+    )
+    persona_fit_estimate: str = dspy.OutputField(
+        desc="Model’s self-estimate (0-1) of how well this response fits the agent’s persona."
+    )
+    desire_to_speak: str = dspy.OutputField(
+        desc="Model’s self-assessed desire (0-1) to speak this turn."
+    )
+    raise_hand: bool = dspy.OutputField(
+        desc="True if the agent would raise their hand to speak this turn."
+    )
+
+class AgentVoteSignature(dspy.Signature):
+    """Evaluate the debate and decide how to vote on the topic."""
+
+    topic: str = dspy.InputField(desc="Debate topic under consideration.")
+    context: str = dspy.InputField(desc="Summary of the discussion so far.")
+    persona_description: str = dspy.InputField(desc="Agent's personality, values, and ideology.")
+    opinion: str = dspy.InputField(desc="Agent's most recent expressed opinion.")
+
+    vote: bool = dspy.OutputField(desc="True if the agent supports the motion, False if they oppose it.")
+    reasoning: str = dspy.OutputField(desc="Detailed reasoning for the vote, aligned with the agent's personality and argument history.")
+    confidence: str = dspy.OutputField(desc="Agent's confidence level in their decision (low/medium/high).")
+
+
+class AgentSummarySignature(dspy.Signature):
+    """Summarize recent discussion for memory compression and continuity."""
+    recent_context: str = dspy.InputField(desc="The most recent lines of debate or discussion.")
+    persona_description: str = dspy.InputField(desc="Agent's personality for consistent summarization style.")
+    summary: str = dspy.OutputField(desc="A short summary of the discussion suitable for adding to memory.")
+
+
+class AgentCritiqueSignature(dspy.Signature):
+    """Critique and lightly improve a response for clarity, persona-fit, and tone consistency."""
+    persona_description: str = dspy.InputField(desc="Agent's background and worldview.")
+    response: str = dspy.InputField(desc="The drafted response to review.")
+    corrected_response: str = dspy.OutputField(desc="Refined version preserving intent but improving fit and tone.")
+
+
+# ---------------------------------------------------------------------------
+#  PoliAgent Implementation
+# ---------------------------------------------------------------------------
+
 class PoliAgent(dspy.Module):
     """
-    Debate agent with:
-      - background persona
-      - short-term memory
-      - LM heads: respond (opinion generation) and voting (bool + hidden reasoning)
-      - individual model for customized responses
+    Debate agent with lightweight 'propose' stage and full ReAct 'talk' stage.
     """
+
     def __init__(
         self,
         agent_id: int,
@@ -22,75 +127,189 @@ class PoliAgent(dspy.Module):
         embedder: SentenceEmbedder,
         model: Optional[dspy.LM] = None,
         memory_size: int = 3,
-        respond_signature: str = "topic, context, your_background -> opinion",
-        vote_signature: str = "topic, context, opinion -> vote:bool"
+        react_max_iters: int = 6,
+        refine_N: int = 3,
+        refine_threshold: float = 0.05,
+        max_interventions: Optional[int] = None,
     ):
         super().__init__()
         self.id = agent_id
         self.name = name
         self.topic = topic
-        self.background = background
+        self.persona_description = background
         self.memory = FixedMemory(memory_size)
         self._embedder = embedder
-        self.model = model  # Individual model for this agent
+        self.model = model
+        self.last_opinion: str = ""
         
-        # Create predictor modules with agent-specific model if provided
+        # Intervention tracking
+        self.max_interventions = max_interventions
+        self.interventions_used: int = 0
+
+        # Build modules
         if model:
             with dspy.context(lm=model):
-                self.respond = dspy.Predict(respond_signature)
-                self.voting = dspy.ChainOfThought(vote_signature)
+                self.intent_module = dspy.Predict(AgentIntentSignature)
+                self.respond_module = dspy.ReAct(
+                    signature=AgentRespondSignature, tools=[], max_iters=react_max_iters
+                )
+                self.vote_module = dspy.ChainOfThought(AgentVoteSignature)
+                self.summarize = dspy.Predict(AgentSummarySignature)
+                self.critique = dspy.Predict(AgentCritiqueSignature)
         else:
-            # Fallback to global configuration
-            self.respond = dspy.Predict(respond_signature)
-            self.voting = dspy.ChainOfThought(vote_signature)
-        self.last_opinion: str = self._generate_initial_opinion()
-
-    def _generate_initial_opinion(self) -> str:
-        context = ""
+            self.intent_module = dspy.Predict(AgentIntentSignature)
+            self.respond_module = dspy.ReAct(
+                signature=AgentRespondSignature, tools=[], max_iters=6
+            )
+            self.vote_module = dspy.ChainOfThought(AgentVoteSignature)
+            self.summarize = dspy.Predict(AgentSummarySignature)
+            self.critique = dspy.Predict(AgentCritiqueSignature)
         
-        # Use agent-specific model if available
-        if self.model:
-            with dspy.context(lm=self.model):
-                out = self.respond(topic=self.topic, context=context, your_background=self.background)
-        else:
-            out = self.respond(topic=self.topic, context=context, your_background=self.background)
-            
-        return out.opinion
+        # ---------------- Refiner ----------------
+        def _reward_novelty_persona(inputs: Dict[str, Any], outputs: Dict[str, Any]) -> float:
+            sim = self._embedder.text_similarity_score
+            draft = getattr(outputs, "response", "") or ""
+            prev = self.last_opinion or ""
+            persona = inputs.get("persona_description", "") or ""
+            novelty = 1.0 - float(sim(draft, prev))
+            persona_fit = float(sim(draft, persona))
+            return 0.6 * novelty + 0.4 * persona_fit
 
-    def talk(self) -> str:
-        context = self.memory.to_text()
-        
-        # Use agent-specific model if available
-        if self.model:
-            with dspy.context(lm=self.model):
-                out = self.respond(topic=self.topic, context=context, your_background=self.background)
-        else:
-            out = self.respond(topic=self.topic, context=context, your_background=self.background)
-            
-        # dspy returns a typed object with fields based on the signature
-        self.last_opinion = out.opinion
-        return self.last_opinion
+        self._use_refiner = refine_N and refine_N > 0
+        if self._use_refiner:
+            self.refine_response = dspy.Refine(
+                self.respond_module,
+                N=refine_N,
+                reward_fn=_reward_novelty_persona,
+                threshold=refine_threshold,
+            )
+
+    # -----------------------------------------------------------------------
+    # Intervention Management
+    # -----------------------------------------------------------------------
     
-    def evaluate(self, other_opinion: str, low: float = 0.3, high: float = 0.75) -> bool:
-        similarity_score = self._embedder.text_similarity_score(self.last_opinion, other_opinion)
-        if similarity_score < low or similarity_score > high:
+    def can_intervene(self) -> bool:
+        """Check if agent can still intervene."""
+        if self.max_interventions is None:
             return True
-        return False
+        return self.interventions_used < self.max_interventions
     
-    def think(self, other_opinion: str) -> bool:
-        wanna_talk = self.evaluate(other_opinion)
-        if wanna_talk:
-            self.memory.enqueue(other_opinion)
-        return wanna_talk
-
-    def vote(self):
-        context = self.memory.to_text()
+    def _get_intervention_context(self) -> str:
+        """Get formatted string describing intervention status for the model."""
+        if self.max_interventions is None:
+            return "no limit"
         
-        # Use agent-specific model if available
-        if self.model:
-            with dspy.context(lm=self.model):
-                vote = self.voting(topic=self.topic, context=context, opinion=self.last_opinion)
+        remaining = self.max_interventions - self.interventions_used
+        if remaining == 1:
+            return "last intervention"
         else:
-            vote = self.voting(topic=self.topic, context=context, opinion=self.last_opinion)
-            
-        return vote.vote, vote.reasoning
+            return f"{remaining} remaining"
+
+    # -----------------------------------------------------------------------
+    # Thinking Phase (cheap)
+    # -----------------------------------------------------------------------
+
+    def propose(self, last_speaker: str, last_opinion: str) -> Dict[str, Any]:
+        """Quickly predict whether the agent wants to respond (low-cost stage)."""
+        # Check if agent can even intervene
+        if not self.can_intervene():
+            return {
+                "raise_hand": False,
+                "desire_to_speak": 0.0,
+                "draft": "",
+                "meta": {"blocked_by_intervention_limit": True},
+            }
+        
+        short_context = self.memory.to_text(limit=2)  # lightweight context
+
+        out = self.intent_module(
+            topic=self.topic,
+            context=short_context,
+            persona_description=self.persona_description,
+            last_speaker=last_speaker,
+            last_opinion=last_opinion,
+            interventions_remaining=self._get_intervention_context(),
+        )
+
+        return {
+            "raise_hand": bool(out.raise_hand),
+            "desire_to_speak": float(out.desire_to_speak),
+            "draft": "",
+            "meta": {},
+        }
+
+    # -----------------------------------------------------------------------
+    # Speaking Phase (expensive, full ReAct)
+    # -----------------------------------------------------------------------
+
+    def talk(self, last_speaker: str = "", last_opinion: str = "") -> str:
+        """Produce full ReAct-based debate response, refined and critiqued."""
+        full_context = self.memory.to_text()  # full, untruncated for ReAct
+
+        inputs = dict(
+            topic=self.topic,
+            context=full_context,
+            persona_description=self.persona_description,
+            last_speaker=last_speaker or "",
+            last_opinion=last_opinion or "",
+            interventions_remaining=self._get_intervention_context(),
+        )
+
+        # Step 1: Generate or refine response
+        if self._use_refiner:
+            out = self.refine_response(**inputs)
+        else:
+            out = self.respond_module(**inputs)
+
+        draft = out.response
+
+        # Step 2: Critique / persona consistency pass
+        crit = self.critique(
+            persona_description=self.persona_description,
+            response=draft
+        )
+        final_response = crit.corrected_response or draft
+
+        # Step 3: Memory update and intervention tracking
+        self.memory.enqueue(final_response)
+        self.last_opinion = final_response
+        self.interventions_used += 1  # Track that this agent has spoken
+        return final_response
+
+    # -----------------------------------------------------------------------
+    # Voting
+    # -----------------------------------------------------------------------
+
+    def vote(self) -> Tuple[bool, str, str]:
+        """Vote on the motion based on discussion history."""
+        context = self.memory.to_text(limit=4)
+        result = self.vote_module(
+            topic=self.topic,
+            context=context,
+            persona_description=self.persona_description,
+            opinion=self.last_opinion,
+        )
+        return result.vote, result.reasoning, result.confidence
+
+    # -----------------------------------------------------------------------
+    # Memory Summarization
+    # -----------------------------------------------------------------------
+
+    def summarize_memory(self):
+        """Compress memory every few iterations."""
+        recent = self.memory.to_text()
+        if not recent.strip():
+            return
+        out = self.summarize(
+            recent_context=recent,
+            persona_description=self.persona_description,
+        )
+        self.memory.clear()
+        self.memory.enqueue(out.summary)
+
+    # -----------------------------------------------------------------------
+    # Utilities
+    # -----------------------------------------------------------------------
+
+    def __repr__(self):
+        return f"<PoliAgent {self.name}>"

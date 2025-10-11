@@ -24,6 +24,7 @@ class CreateSimRequest(BaseModel):
     stance: str = ""
     embedding_model: str = "onnx_minilm"  # "openrouter" or "onnx_minilm"
     embedding_config: Optional[dict] = None  # Additional config for the embedding model
+    max_interventions_per_agent: Optional[int] = None  # Maximum number of times each agent can speak
 
 class RunResponse(BaseModel):
     simulation_id: str
@@ -172,6 +173,7 @@ class UpdateConfigRequest(BaseModel):
     stance: Optional[str] = None
     embedding_model: Optional[str] = None
     embedding_config: Optional[dict] = None
+    max_interventions_per_agent: Optional[int] = None
 
 # Voting Schemas
 class IndividualVote(BaseModel):

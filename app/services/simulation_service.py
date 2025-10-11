@@ -71,6 +71,7 @@ class SimulationService:
                 max_iters=config.max_iters,
                 bias=config.bias,
                 stance=config.stance,
+                max_interventions_per_agent=config.max_interventions_per_agent,
             )
             
             # Start simulation
@@ -86,8 +87,10 @@ class SimulationService:
                     if run.status == "stopped":
                         simulation._finished = True
                         break
-                    
-                step_result = simulation.step()
+                
+                # Run the simulation step in a thread to avoid blocking the event loop
+                loop = asyncio.get_event_loop()
+                step_result = await loop.run_in_executor(None, simulation.step)
                 iteration_counter += 1  # Our own counter to ensure uniqueness
                 
                 print(f"Simulation {run_id} - Step {iteration_counter}: {step_result['speaker']}")
@@ -123,7 +126,7 @@ class SimulationService:
                 if step_result["finished"]:
                     break
                 
-                # Small delay to prevent overwhelming
+                # Yield control back to the event loop to handle other requests
                 await asyncio.sleep(0.1)
             
             # Mark as finished (use short-lived session)
@@ -177,6 +180,7 @@ class SimulationService:
         
         version_agents = config_version.agents
         topic = config_version.parameters.get("topic", "")
+        max_interventions_per_agent = config_version.parameters.get("max_interventions_per_agent")
         
         from sqlmodel import select
         events_stmt = (
@@ -211,7 +215,11 @@ class SimulationService:
                 topic=topic,
                 embedder=embedder,
                 model=agent_model,
-                memory_size=3
+                memory_size=3,
+                react_max_iters=6,
+                refine_N=3,
+                refine_threshold=0.05,
+                max_interventions=max_interventions_per_agent
             )
             voting_agents.append(agent)
         
@@ -247,7 +255,7 @@ class SimulationService:
         individual_votes = []
         
         for i, agent in enumerate(voting_agents):
-            vote, reasoning = agent.vote()
+            vote, reasoning, confidence = agent.vote()
             reasons_list.append(f"{agent.name}: {reasoning}")
             
             if vote:
