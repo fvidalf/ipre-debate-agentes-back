@@ -48,7 +48,8 @@ class SimulationService:
                 InternalAgentConfig(
                     name=agent.name,
                     profile=agent.profile,
-                    model_id=agent.model_id
+                    model_id=agent.model_id,
+                    lm_config=agent.lm_config.dict() if agent.lm_config else None
                 )
                 for agent in config.agents
             ]
@@ -200,10 +201,12 @@ class SimulationService:
             agent_model = None
             if agent_data.get("model_id"):
                 try:
+                    lm_params = agent_data.get("lm_config", {}) or {}
                     agent_model = create_agent_lm(
                         model_id=agent_data["model_id"],
                         api_base=self._api_base,
-                        api_key=self._api_key
+                        api_key=self._api_key,
+                        **lm_params
                     )
                 except ValueError:
                     pass  # Use default LM
@@ -217,7 +220,7 @@ class SimulationService:
                 model=agent_model,
                 memory_size=3,
                 react_max_iters=6,
-                refine_N=3,
+                refine_N=2,
                 refine_threshold=0.05,
                 max_interventions=max_interventions_per_agent
             )

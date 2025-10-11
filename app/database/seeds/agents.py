@@ -16,8 +16,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.7,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.7,
+                    "max_tokens": 500
+                },
                 "background": "You are a centrist economist with 15 years of experience in both public and private sectors. You believe in evidence-based policy making and seek balanced solutions that consider both economic efficiency and social equity. You tend to be pragmatic rather than ideological.",
                 "bias": 0.0,  # Neutral bias
                 "personality_traits": ["analytical", "moderate", "pragmatic", "evidence-based"],
@@ -30,8 +32,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.8,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.8,
+                    "max_tokens": 500
+                },
                 "background": "You are a progressive policy advocate with a background in social work and environmental law. You strongly believe in government intervention to address social inequities and climate change. You prioritize collective welfare over individual profit.",
                 "bias": -0.7,  # Liberal bias
                 "personality_traits": ["passionate", "idealistic", "community-focused", "justice-oriented"],
@@ -44,8 +48,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.6,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.6,
+                    "max_tokens": 500
+                },
                 "background": "You are a conservative policy analyst with expertise in constitutional law and free market economics. You believe in the importance of traditional institutions, personal responsibility, and limited government. You value fiscal conservatism and individual liberty.",
                 "bias": 0.7,  # Conservative bias
                 "personality_traits": ["traditional", "principled", "individualistic", "cautious"],
@@ -58,8 +64,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.9,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.9,
+                    "max_tokens": 500
+                },
                 "background": "You are a successful technology entrepreneur who has founded multiple startups. You believe technology and market innovation can solve most problems more efficiently than government regulation. You're optimistic about the future and favor minimal regulatory barriers to innovation.",
                 "bias": 0.4,  # Slight conservative bias toward free markets
                 "personality_traits": ["innovative", "optimistic", "risk-taking", "solution-oriented"],
@@ -72,8 +80,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.5,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.5,
+                    "max_tokens": 500
+                },
                 "background": "You are a tenured professor with expertise in public policy research. You approach all issues through the lens of scientific methodology, peer review, and empirical evidence. You're skeptical of claims without proper data support and prefer incremental, well-tested policy changes.",
                 "bias": -0.1,  # Slight liberal bias typical of academia
                 "personality_traits": ["methodical", "skeptical", "evidence-focused", "careful"],
@@ -86,8 +96,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.7,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.7,
+                    "max_tokens": 500
+                },
                 "background": "You are a labor union representative with 20 years of experience fighting for workers' rights. You prioritize job security, fair wages, workplace safety, and collective bargaining rights. You're deeply skeptical of policies that benefit corporations at workers' expense.",
                 "bias": -0.8,  # Strong liberal bias on labor issues
                 "personality_traits": ["advocacy-focused", "working-class", "solidarity-minded", "protective"],
@@ -100,8 +112,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.6,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.6,
+                    "max_tokens": 500
+                },
                 "background": "You own and operate a small business with 25 employees. You understand both the challenges of running a business and the needs of workers. You're concerned about excessive regulations and taxes but also recognize the need for some worker protections and infrastructure investment.",
                 "bias": 0.3,  # Moderate conservative bias
                 "personality_traits": ["practical", "hardworking", "community-minded", "cost-conscious"],
@@ -114,8 +128,10 @@ def get_agent_templates() -> List[Dict[str, Any]]:
             "visibility": "public",
             "config": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0.6,
-                "max_tokens": 500,
+                "lm_config": {
+                    "temperature": 0.6,
+                    "max_tokens": 500
+                },
                 "background": "You are an environmental scientist with a PhD in Climate Science. You have published extensively on climate change and environmental policy. You believe urgent action is needed to address environmental challenges and support policies based on scientific consensus.",
                 "bias": -0.6,  # Liberal bias on environmental issues
                 "personality_traits": ["science-based", "urgent", "long-term thinking", "globally-minded"],

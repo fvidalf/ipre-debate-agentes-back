@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
         model="openai/gpt-4o-mini",
         api_base="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY")
+        # REVERTED: Removed provider parameter to go back to DSPy defaults
     )
     dspy.settings.configure(cache=False)
     dspy.configure(lm=lm)

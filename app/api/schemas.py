@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from uuid import UUID
 
@@ -7,10 +7,19 @@ class CanvasPosition(BaseModel):
     x: float
     y: float
 
+class LMConfig(BaseModel):
+    """Language Model configuration parameters for fine-tuning agent behavior"""
+    temperature: Optional[float] = Field(None, ge=0.0, le=2.0, description="Controls randomness in responses (0.0-2.0)")
+    max_tokens: Optional[int] = Field(None, ge=1, le=4096, description="Maximum tokens in response (1-4096)")
+    top_p: Optional[float] = Field(None, ge=0.0, le=1.0, description="Nucleus sampling parameter (0.0-1.0)")
+    frequency_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0, description="Reduces repetition (-2.0-2.0)")
+    presence_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0, description="Encourages new topics (-2.0-2.0)")
+
 class AgentConfig(BaseModel):
     name: str
     profile: str
     model_id: Optional[str] = None  # Model ID for this specific agent
+    lm_config: Optional[LMConfig] = None  # Language model parameters
     canvas_position: Optional[CanvasPosition] = None
 
 class CreateSimRequest(BaseModel):

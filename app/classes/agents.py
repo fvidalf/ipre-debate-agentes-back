@@ -4,6 +4,30 @@ import numpy as np
 from .memory import FixedMemory
 from .nlp import SentenceEmbedder
 
+# ---------------------------------------------------------------------------
+#  DEBUG: Commented out monkey patch for debugging
+# ---------------------------------------------------------------------------
+
+# COMMENTED OUT: Debug logging for API calls
+# Store original methods
+# _original_lm_call = dspy.LM.__call__
+# _original_lm_forward = dspy.LM.forward
+
+# def debug_lm_call(self, *args, **kwargs):
+#     """Debug wrapper to see what parameters are actually sent to the API"""
+#     print(f"🔥 FINAL LM.__call__ to {getattr(self, 'model', 'UNKNOWN')} with kwargs:", kwargs)
+#     return _original_lm_call(self, *args, **kwargs)
+
+# def debug_lm_forward(self, *args, **kwargs):
+#     """Debug wrapper to see what parameters are actually sent to the API"""
+#     print(f"🔥 FINAL LM.forward to {getattr(self, 'model', 'UNKNOWN')} with kwargs:", kwargs)
+#     print(f"🔥 LM instance kwargs: {getattr(self, 'kwargs', {})}")
+#     return _original_lm_forward(self, *args, **kwargs)
+
+# # Apply monkey patches
+# dspy.LM.__call__ = debug_lm_call
+# dspy.LM.forward = debug_lm_forward
+
 
 # ---------------------------------------------------------------------------
 #  DSPy Signatures
@@ -128,7 +152,7 @@ class PoliAgent(dspy.Module):
         model: Optional[dspy.LM] = None,
         memory_size: int = 3,
         react_max_iters: int = 6,
-        refine_N: int = 3,
+        refine_N: int = 2,
         refine_threshold: float = 0.05,
         max_interventions: Optional[int] = None,
     ):
@@ -146,17 +170,28 @@ class PoliAgent(dspy.Module):
         self.max_interventions = max_interventions
         self.interventions_used: int = 0
 
-        # Build modules
+        # Build modules - REVERTED TO ORIGINAL APPROACH
         if model:
-            with dspy.context(lm=model):
-                self.intent_module = dspy.Predict(AgentIntentSignature)
-                self.respond_module = dspy.ReAct(
-                    signature=AgentRespondSignature, tools=[], max_iters=react_max_iters
-                )
-                self.vote_module = dspy.ChainOfThought(AgentVoteSignature)
-                self.summarize = dspy.Predict(AgentSummarySignature)
-                self.critique = dspy.Predict(AgentCritiqueSignature)
+            # Simple module creation, let DSPy handle LM assignment
+            self.intent_module = dspy.Predict(AgentIntentSignature)
+            self.respond_module = dspy.ReAct(
+                signature=AgentRespondSignature, 
+                tools=[], 
+                max_iters=react_max_iters
+            )
+            self.vote_module = dspy.ChainOfThought(AgentVoteSignature)
+            self.summarize = dspy.Predict(AgentSummarySignature)
+            self.critique = dspy.Predict(AgentCritiqueSignature)
+            
+            # ORIGINAL: Try to set the LM on ReAct module (didn't work but that's the original approach)
+            self.respond_module.lm = model
+            
+            # COMMENTED OUT: Debug logging for ReAct LM verification
+            # print(f"DEBUG: Agent {self.name} ReAct LM: {self.respond_module.lm}")
+            # print(f"DEBUG: Agent {self.name} ReAct LM kwargs: {getattr(self.respond_module.lm, 'kwargs', 'NOT_FOUND')}")
+            
         else:
+            # Fallback to default behavior when no model provided
             self.intent_module = dspy.Predict(AgentIntentSignature)
             self.respond_module = dspy.ReAct(
                 signature=AgentRespondSignature, tools=[], max_iters=6
@@ -222,6 +257,14 @@ class PoliAgent(dspy.Module):
         
         short_context = self.memory.to_text(limit=2)  # lightweight context
 
+        # COMMENTED OUT: Debug logging for model information
+        # print(f"DEBUG: Agent {self.name} checking intent to speak")
+        # print(f"  - Agent model: {self.model}")
+        # if self.model:
+        #     print(f"  - Model ID: {getattr(self.model, 'model', 'NOT_FOUND')}")
+        #     print(f"  - Max tokens: {getattr(self.model, 'max_tokens', 'NOT_FOUND')}")
+
+        # REVERTED: Back to original simple approach, no context managers
         out = self.intent_module(
             topic=self.topic,
             context=short_context,
@@ -244,6 +287,7 @@ class PoliAgent(dspy.Module):
 
     def talk(self, last_speaker: str = "", last_opinion: str = "") -> str:
         """Produce full ReAct-based debate response, refined and critiqued."""
+        
         full_context = self.memory.to_text()  # full, untruncated for ReAct
 
         inputs = dict(
@@ -255,7 +299,7 @@ class PoliAgent(dspy.Module):
             interventions_remaining=self._get_intervention_context(),
         )
 
-        # Step 1: Generate or refine response
+        # Step 1: Generate or refine response - REVERTED TO ORIGINAL
         if self._use_refiner:
             out = self.refine_response(**inputs)
         else:
@@ -283,6 +327,8 @@ class PoliAgent(dspy.Module):
     def vote(self) -> Tuple[bool, str, str]:
         """Vote on the motion based on discussion history."""
         context = self.memory.to_text(limit=4)
+        
+        # REVERTED: Back to original simple approach
         result = self.vote_module(
             topic=self.topic,
             context=context,

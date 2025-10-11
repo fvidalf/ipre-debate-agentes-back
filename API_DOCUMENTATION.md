@@ -153,8 +153,10 @@ Retrieves public agent templates.
       "visibility": "public",
       "config": {
         "model": "openai/gpt-4o-mini",
-        "temperature": 0.7,
-        "max_tokens": 500,
+        "lm_config": {
+          "temperature": 0.7,
+          "max_tokens": 500
+        },
         "background": "You are a centrist economist...",
         "bias": 0.0,
         "personality_traits": ["analytical", "moderate"],
@@ -186,8 +188,10 @@ Retrieves a specific agent template by ID. Shows public templates or user's priv
   "visibility": "public",
   "config": {
     "model": "openai/gpt-4o-mini",
-    "temperature": 0.7,
-    "max_tokens": 500,
+    "lm_config": {
+      "temperature": 0.7,
+      "max_tokens": 500
+    },
     "background": "You are a centrist economist...",
     "bias": 0.0,
     "personality_traits": ["analytical", "moderate"],
@@ -670,12 +674,21 @@ Creates and starts a new debate simulation.
     {
       "name": "TechExec", 
       "profile": "You are a tech executive concerned about business costs",
-      "model_id": "openai/gpt-4o"
+      "model_id": "openai/gpt-4o",
+      "lm_config": {
+        "temperature": 0.3,
+        "max_tokens": 800,
+        "top_p": 0.9
+      }
     },
     {
       "name": "PrivacyAdvocate", 
       "profile": "You are a privacy rights advocate",
-      "model_id": "anthropic/claude-3.5-sonnet"
+      "model_id": "anthropic/claude-3.5-sonnet",
+      "lm_config": {
+        "temperature": 0.7,
+        "max_tokens": 600
+      }
     }
   ],
   "max_iters": 21,
@@ -695,6 +708,19 @@ Creates and starts a new debate simulation.
   - `name` (string): Agent name
   - `profile` (string): Background description
   - `model_id` (string, optional): Language model ID
+  - `lm_config` (object, optional): Language model parameters
+    - `temperature` (float, 0.0-2.0): Controls response creativity/randomness
+    - `max_tokens` (integer, 1-4096): Maximum response length
+    - `top_p` (float, 0.0-1.0): Nucleus sampling parameter
+    - `frequency_penalty` (float, -2.0-2.0): Reduces repetition (OpenAI models only)
+    - `presence_penalty` (float, -2.0-2.0): Encourages new topics (OpenAI models only)
+
+**LM Config Provider Compatibility:**
+- **OpenAI models** (`openai/*`): All parameters supported
+- **Anthropic models** (`anthropic/*`): temperature, max_tokens, top_p
+- **Google models** (`google/*`): temperature, max_tokens  
+- **Meta models** (`meta-llama/*`): temperature, max_tokens, top_p
+- Unsupported parameters are automatically filtered out based on the model provider
 
 **Optional Fields:**
 - `config_id` (string): Existing config ID to auto-save changes to

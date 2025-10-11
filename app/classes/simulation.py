@@ -17,6 +17,7 @@ class InternalAgentConfig:
     name: str
     profile: str
     model_id: Optional[str] = None
+    lm_config: Optional[Dict[str, Any]] = None  # Language model parameters
 
 
 @dataclass
@@ -52,20 +53,30 @@ class Simulation:
         objs: List[PoliAgent] = []
         for idx, agent_config in enumerate(self.agent_configs):
             agent_model = None
-            if agent_config.model_id:
+            
+            # Always create a model instance if we have parameters or a specific model
+            if agent_config.model_id or agent_config.lm_config:
+                model_id = agent_config.model_id or DEFAULT_MODEL
+                lm_params = agent_config.lm_config or {}
+                
                 try:
                     agent_model = create_agent_lm(
-                        model_id=agent_config.model_id,
+                        model_id=model_id,
                         api_base=self.api_base,
                         api_key=self.api_key,
+                        **lm_params
                     )
                 except ValueError:
+                    # Fallback to default model with parameters
                     agent_model = create_agent_lm(
                         model_id=DEFAULT_MODEL,
                         api_base=self.api_base,
                         api_key=self.api_key,
+                        **lm_params
                     )
 
+            # Create agent with its individual LM - BACK TO ORIGINAL APPROACH
+            # No context manager, just pass the model directly like before
             a = PoliAgent(
                 agent_id=idx,
                 name=agent_config.name,

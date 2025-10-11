@@ -60,6 +60,7 @@ def create_config_version(
             "name": agent.name,
             "profile": agent.profile,
             "model_id": agent.model_id,
+            "lm_config": agent.lm_config.dict() if agent.lm_config else None,
             "canvas_position": canvas_pos
         })
     
