@@ -15,11 +15,26 @@ class LMConfig(BaseModel):
     frequency_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0, description="Reduces repetition (-2.0-2.0)")
     presence_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0, description="Encourages new topics (-2.0-2.0)")
 
+class ToolConfig(BaseModel):
+    """Individual tool configuration"""
+    enabled: bool = Field(False, description="Whether this tool is enabled")
+    sources: Optional[List[str]] = Field(default=[], description="List of domain sources for this tool")
+    canvas_position: Optional[CanvasPosition] = None
+
+class WebSearchToolsConfig(BaseModel):
+    """Web search tools configuration"""
+    wikipedia_tool: Optional[ToolConfig] = None
+    news_tool: Optional[ToolConfig] = None
+    pages_tool: Optional[ToolConfig] = None
+    google_ai_tool: Optional[ToolConfig] = None
+
 class AgentConfig(BaseModel):
     name: str
     profile: str
     model_id: Optional[str] = None  # Model ID for this specific agent
     lm_config: Optional[LMConfig] = None  # Language model parameters
+    web_search_tools: Optional[WebSearchToolsConfig] = None
+    recall_tools: Optional[Dict[str, Any]] = None
     canvas_position: Optional[CanvasPosition] = None
 
 class CreateSimRequest(BaseModel):
@@ -83,6 +98,16 @@ class AvailableModelsResponse(BaseModel):
     models: List[AvailableModel]
     default_model: str
 
+class AvailableTool(BaseModel):
+    id: str
+    name: str
+    description: str
+    icon: str  # Lucide React icon name
+    config_schema: Dict[str, Any]
+
+class AvailableToolsResponse(BaseModel):
+    tools: Dict[str, List[AvailableTool]]
+
 # Agent Template Schemas
 class AgentTemplateResponse(BaseModel):
     id: str
@@ -104,9 +129,10 @@ class AgentTemplatesListResponse(BaseModel):
 class AgentSnapshotResponse(BaseModel):
     position: int
     name: Optional[str]
-    background: Optional[str]
+    profile: str  # Agent's personality/background description
+    model_id: Optional[str] = None
+    web_search_tools: Optional[WebSearchToolsConfig] = None
     canvas_position: Optional[CanvasPosition] = None
-    snapshot: Dict[str, Any]
     created_at: datetime
 
 # Config Template Schemas
@@ -197,3 +223,44 @@ class VotingResponse(BaseModel):
     nay: int
     individual_votes: List[IndividualVote]
     created_at: datetime
+
+
+# Document Library Schemas
+class DocumentLibraryResponse(BaseModel):
+    id: str
+    title: str
+    description: Optional[str]
+    document_type: str
+    original_filename: Optional[str]
+    file_size: Optional[int]
+    mime_type: Optional[str]
+    processing_status: str
+    embedding_status: str
+    error_message: Optional[str]
+    tags: List[str]
+    content: Optional[str] = None  # Only included in single-item view
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentsListResponse(BaseModel):
+    documents: List[DocumentLibraryResponse]
+    total: int
+
+
+class DocumentUploadResponse(BaseModel):
+    id: str
+    title: str
+    processing_status: str
+    embedding_status: str
+    message: str
+
+
+class RecallToolConfig(BaseModel):
+    """Recall tool configuration including document references"""
+    documents_tool: Optional[Dict[str, Any]] = None
+    notes_tool: Optional[Dict[str, Any]] = None
+    document_ids: Optional[List[str]] = Field(default=[], description="List of document IDs accessible to this agent")

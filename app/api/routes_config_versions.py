@@ -2,7 +2,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlmodel import Session
 
-from app.api.schemas import ConfigResponse, AgentSnapshotResponse, CanvasPosition
+from app.api.schemas import ConfigResponse, AgentSnapshotResponse, CanvasPosition, WebSearchToolsConfig
 from app.services.config_service import get_config_version
 from app.models import Config, User
 from app.dependencies import get_db, get_current_user
@@ -53,12 +53,10 @@ async def get_config_version_endpoint(
         agents.append(AgentSnapshotResponse(
             position=i + 1,  # Position starts from 1
             name=agent_data.get("name"),
-            background=None,  # Not stored in version, could be added if needed
+            profile=agent_data.get("profile", ""),
+            model_id=agent_data.get("model_id"),
+            web_search_tools=WebSearchToolsConfig(**agent_data.get("web_search_tools", {})) if agent_data.get("web_search_tools") else None,
             canvas_position=canvas_position,
-            snapshot={  # Note: This field name "snapshot" is correct - it contains the agent's configuration snapshot
-                "profile": agent_data.get("profile", ""),
-                "model_id": agent_data.get("model_id", "")
-            },
             created_at=version.created_at
         ))
     

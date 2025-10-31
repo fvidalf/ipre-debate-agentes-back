@@ -28,8 +28,10 @@ from app.api.routes_config_templates import router as config_templates_router
 from app.api.routes_configs import router as configs_router
 from app.api.routes_config_versions import router as config_versions_router
 from app.api.routes_auth import router as auth_router
+from app.api.routes_documents import router as documents_router
 from app.services import SimulationService
 from app.models import User
+from app.services.embedding_service import get_embedding_service, reset_embedding_service
 
 # Configure logging
 logging.basicConfig(
@@ -45,9 +47,17 @@ logger = logging.getLogger(__name__)
 logging.getLogger("app.api").setLevel(logging.DEBUG)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)  # Reduce SQL noise
 
+# Silence uvicorn access logs (INFO level request logs)
+logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+# Keep uvicorn error logs visible
+logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    embedding_service = get_embedding_service()
+    print(f"Embedding service initialized: {embedding_service.provider_type} ({embedding_service.model_name})")
+    
     # Preload available models from OpenRouter
     from app.classes.model_config import fetch_openrouter_models
     print("Loading available models from OpenRouter...")
@@ -83,6 +93,8 @@ async def lifespan(app: FastAPI):
     
     # Cleanup on shutdown
     try:
+        reset_embedding_service()
+        
         del lm
         app.state.sim_service = None
         app.state.db_session = None
@@ -110,6 +122,7 @@ app.include_router(agents_router)
 app.include_router(config_templates_router)
 app.include_router(configs_router)
 app.include_router(config_versions_router)
+app.include_router(documents_router)
 
 @app.get("/healthz")
 def healthz():

@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from sqlmodel import Session, select
 
-from app.api.schemas import ConfigsListResponse, ConfigResponse, ConfigListItem, AgentSnapshotResponse, RunsListResponse, RunListItem, CreateConfigRequest, UpdateConfigRequest
+from app.api.schemas import ConfigsListResponse, ConfigResponse, ConfigListItem, AgentSnapshotResponse, RunsListResponse, RunListItem, CreateConfigRequest, UpdateConfigRequest, WebSearchToolsConfig
 from app.services.config_service import update_config_manual
 from app.models import Config, ConfigAgent, Run, User
 from app.dependencies import get_db, get_current_user
@@ -230,9 +230,10 @@ async def update_config(
             AgentSnapshotResponse(
                 position=snapshot.position,
                 name=snapshot.name,
-                background=snapshot.background,
+                profile=snapshot.snapshot.get("profile", ""),
+                model_id=snapshot.snapshot.get("model_id"),
+                web_search_tools=WebSearchToolsConfig(**snapshot.snapshot.get("web_search_tools", {})) if snapshot.snapshot.get("web_search_tools") else None,
                 canvas_position=snapshot.canvas_position,
-                snapshot=snapshot.snapshot,
                 created_at=snapshot.created_at
             )
             for snapshot in agent_snapshots
@@ -299,9 +300,10 @@ async def get_config(
             AgentSnapshotResponse(
                 position=snapshot.position,
                 name=snapshot.name,
-                background=snapshot.background,
+                profile=snapshot.snapshot.get("profile", ""),
+                model_id=snapshot.snapshot.get("model_id"),
+                web_search_tools=WebSearchToolsConfig(**snapshot.snapshot.get("web_search_tools", {})) if snapshot.snapshot.get("web_search_tools") else None,
                 canvas_position=snapshot.canvas_position,
-                snapshot=snapshot.snapshot,
                 created_at=snapshot.created_at
             )
             for snapshot in agent_snapshots
@@ -394,7 +396,7 @@ async def delete_config(
     """Delete a config and all related entities (runs, events, summaries, analytics, versions, agents)
     Only the config owner can delete their configs.
     """
-    from app.models import ConfigVersion, RunEvent, Summary, RunAnalytics
+    from app.models import ConfigVersion, Intervention, ToolUsage, Summary, RunAnalytics
     from sqlmodel import select, delete
     
     try:
@@ -429,9 +431,14 @@ async def delete_config(
             summaries_stmt = delete(Summary).where(Summary.run_id.in_(run_ids))
             db.exec(summaries_stmt)
             
-            # Delete run events (no foreign key dependencies)  
-            events_stmt = delete(RunEvent).where(RunEvent.run_id.in_(run_ids))
-            db.exec(events_stmt)
+            # Delete interventions and tool usages (no foreign key dependencies)  
+            interventions_stmt = delete(Intervention).where(Intervention.run_id.in_(run_ids))
+            db.exec(interventions_stmt)
+            
+            tool_usages_stmt = delete(ToolUsage).where(ToolUsage.intervention_id.in_(
+                select(Intervention.id).where(Intervention.run_id.in_(run_ids))
+            ))
+            db.exec(tool_usages_stmt)
             
             # Delete runs
             runs_stmt = delete(Run).where(Run.config_id == config_uuid)

@@ -3,14 +3,15 @@ import asyncio
 from typing import Dict, Tuple, List
 from uuid import UUID
 from datetime import datetime
+import numpy as np
 
 from sqlmodel import Session
 import dspy
 
 from app.classes.simulation import Simulation, InternalAgentConfig
-from app.classes.nlp import create_sentence_embedder
-from app.models import Run, RunEvent
+from app.models import Run, Intervention, ToolUsage, Embedding
 from app.api.schemas import CreateSimRequest
+from app.services.embedding_service import get_embedding_service
 
 
 class SimulationService:
@@ -30,6 +31,33 @@ class SimulationService:
         self._api_key = os.getenv("OPENROUTER_API_KEY")
         self._engine = engine
 
+    def _extract_web_search_config(self, agent) -> Dict[str, any]:
+        """Extract web search configuration from tool configuration"""
+        if hasattr(agent, 'web_search_tools') and agent.web_search_tools:
+            tools_config = agent.web_search_tools.dict()
+            
+            # Convert nested structure to flat config for tools.py
+            config = {}
+            for tool_name, tool_config in tools_config.items():
+                if tool_config and tool_config.get('enabled', False):  # Only include enabled tools
+                    config[tool_name] = tool_config
+            
+            print(f"   - Raw tools config: {tools_config}")
+            print(f"   - Processed config: {config}")
+            
+            return config if config else None
+        
+        print(f"   - No web_search_tools found on agent")
+        return None
+
+    def _extract_recall_config(self, agent) -> Dict[str, any]:
+        """Extract recall tools configuration from agent configuration"""
+        if hasattr(agent, 'recall_tools') and agent.recall_tools:
+            return agent.recall_tools
+        
+        print(f"   - No recall_tools found on agent")
+        return None
+
     async def run_simulation_background(self, run_id: UUID, config: CreateSimRequest):
         """Run simulation in background, storing events in database"""
         try:
@@ -44,31 +72,36 @@ class SimulationService:
                 db.commit()
             
             # Convert schema objects to internal AgentConfig objects
-            agent_configs = [
-                InternalAgentConfig(
+            agent_configs = []
+            for i, agent in enumerate(config.agents):
+                # print(f"🔍 Agent {i} ({agent.name}) - Full object type: {type(agent)}")
+                # print(f"🔍 Agent {i} - Available attributes: {[attr for attr in dir(agent) if not attr.startswith('_')]}")
+                # print(f"🔍 Agent {i} - Raw agent object: {agent}")
+                if hasattr(agent, 'web_search_tools'):
+                    pass
+                    # print(f"🔍 Agent {i} - web_search_tools type: {type(agent.web_search_tools)}")
+                    # print(f"🔍 Agent {i} - web_search_tools value: {agent.web_search_tools}")
+                web_search_config = self._extract_web_search_config(agent)
+                recall_config = self._extract_recall_config(agent)
+                
+                agent_configs.append(InternalAgentConfig(
                     name=agent.name,
                     profile=agent.profile,
                     model_id=agent.model_id,
-                    lm_config=agent.lm_config.dict() if agent.lm_config else None
-                )
-                for agent in config.agents
-            ]
-            
-            # Create embedder based on configuration
-            embedder_config = config.embedding_config or {}
-            sbert = create_sentence_embedder(
-                model_type=config.embedding_model, 
-                **embedder_config
-            )
+                    lm_config=agent.lm_config.dict() if agent.lm_config else None,
+                    web_search_tools=web_search_config,
+                    recall_tools=recall_config
+                ))
             
             # Create simulation
             simulation = Simulation(
                 topic=config.topic,
                 agent_configs=agent_configs,
-                embedder=sbert,
                 lm=self._lm,
                 api_base=self._api_base,
                 api_key=self._api_key,
+                run_id=run_id,
+                db_engine=self._engine,
                 max_iters=config.max_iters,
                 bias=config.bias,
                 stance=config.stance,
@@ -94,22 +127,128 @@ class SimulationService:
                 step_result = await loop.run_in_executor(None, simulation.step)
                 iteration_counter += 1  # Our own counter to ensure uniqueness
                 
+                # Extract tool usage from the current speaker
+                tool_usage = None
+                prediction_metadata = None
+                try:
+                    current_speaker = step_result["speaker"]
+                    for agent in simulation._agents:
+                        if agent.name == current_speaker:
+                            tool_usage = getattr(agent, 'last_tool_usage', None)
+                            base_metadata = getattr(agent, 'last_prediction_metadata', None) or {}
+                            
+                            # Add timeline to metadata if available
+                            if tool_usage and tool_usage.get('timeline'):
+                                base_metadata['timeline'] = tool_usage['timeline']
+                            
+                            prediction_metadata = base_metadata if base_metadata else None
+                            break
+                except Exception as e:
+                    print(f"Warning: Could not extract tool usage for {step_result['speaker']}: {e}")
+
                 print(f"Simulation {run_id} - Step {iteration_counter}: {step_result['speaker']}")
-                
-                # Store event in database (use short-lived session)
+
+                # Store intervention and tool usage in database
                 with Session(self._engine) as db:
-                    event = RunEvent(
+                    # Create new Intervention with tool usage and reasoning data
+                    intervention = Intervention(
                         run_id=run_id,
                         iteration=iteration_counter,
                         speaker=step_result["speaker"],
-                        opinion=step_result["opinion"],
-                        engaged=step_result["engaged"],
+                        content=step_result["opinion"],  # "opinion" -> "content" 
+                        engaged_agents=step_result["engaged"],
+                        reasoning_steps=tool_usage.get("reasoning_steps", []) if tool_usage else None,
+                        prediction_metadata=prediction_metadata,  # Store extra metadata as JSON
                         finished=step_result["finished"],
                         stopped_reason=step_result["stopped_reason"]
                     )
                     
                     try:
-                        db.add(event)
+                        db.add(intervention)
+                        db.flush()  # Get the intervention ID without committing
+                        
+                        # Store tool usage if present
+                        tool_usage_records = []
+                        if tool_usage and tool_usage.get("tools_used"):
+                            for tool_data in tool_usage["tools_used"]:
+                                tool_usage_record = ToolUsage(
+                                    intervention_id=intervention.id,
+                                    agent_name=step_result["speaker"],
+                                    tool_name=tool_data.get("tool_name", "unknown"),
+                                    query=tool_data.get("query", ""),
+                                    output=str(tool_data.get("result", "")),
+                                    raw_results=tool_data,  # Store full tool data for debugging
+                                    execution_time=tool_data.get("execution_time")
+                                )
+                                db.add(tool_usage_record)
+                                tool_usage_records.append(tool_usage_record)
+                        
+                        db.flush()  # Get tool usage IDs without committing
+                        
+                        # Generate and store embeddings
+                        try:
+                            embedding_service = get_embedding_service()
+                            
+                            # Collect all texts for batch embedding
+                            texts_to_embed = []
+                            embedding_metadata = []
+                            
+                            # 1. Add intervention text (PUBLIC)
+                            texts_to_embed.append(intervention.content)
+                            embedding_metadata.append({
+                                'type': 'intervention',
+                                'source_id': intervention.id,
+                                'text_content': intervention.content,
+                                'visibility': 'public',
+                                'owner_agent': None,
+                                'run_id': intervention.run_id
+                            })
+                            
+                            # 2. Add tool usage texts (PRIVATE)
+                            for tool_usage_record in tool_usage_records:
+                                # Tool query
+                                texts_to_embed.append(tool_usage_record.query)
+                                embedding_metadata.append({
+                                    'type': 'tool_query',
+                                    'source_id': tool_usage_record.id,
+                                    'text_content': tool_usage_record.query,
+                                    'visibility': 'private',
+                                    'owner_agent': tool_usage_record.agent_name,
+                                    'run_id': intervention.run_id
+                                })
+                                
+                                # Tool output
+                                texts_to_embed.append(tool_usage_record.output)
+                                embedding_metadata.append({
+                                    'type': 'tool_output',
+                                    'source_id': tool_usage_record.id,
+                                    'text_content': tool_usage_record.output,
+                                    'visibility': 'private',
+                                    'owner_agent': tool_usage_record.agent_name,
+                                    'run_id': intervention.run_id
+                                })
+                            
+                            # Generate all embeddings in one batch
+                            if texts_to_embed:
+                                embeddings = embedding_service.encode(texts_to_embed)
+                                
+                                # Create embedding records with batch results
+                                for i, metadata in enumerate(embedding_metadata):
+                                    embedding_vector = embeddings[i].tolist() if embeddings.ndim > 1 else embeddings.tolist()
+                                    
+                                    db.add(Embedding(
+                                        source_type=metadata['type'],
+                                        source_id=metadata['source_id'],
+                                        text_content=metadata['text_content'],
+                                        visibility=metadata['visibility'],
+                                        owner_agent=metadata['owner_agent'],
+                                        run_id=metadata['run_id'],
+                                        embedding=embedding_vector,
+                                        embedding_model=embedding_service.model_name
+                                    ))
+                                
+                        except Exception as embed_err:
+                            print(f"Warning: Could not generate embeddings: {embed_err}")
                         
                         # Update run progress
                         run = db.get(Run, run_id)
@@ -142,7 +281,6 @@ class SimulationService:
             
             # Cleanup
             del simulation
-            del sbert
             
         except Exception as e:
             print(f"Error in simulation {run_id}: {str(e)}")
@@ -160,7 +298,7 @@ class SimulationService:
                 print(f"Failed to update failed simulation status: {db_error}")
 
     async def trigger_voting(self, run_id: UUID, db: Session) -> Tuple[int, int, List[str]]:
-        """Trigger voting for a completed simulation using stored RunEvents (efficient approach)"""
+        """Trigger voting for a completed simulation using stored Interventions"""
         from app.models import Summary, ConfigVersion
         from app.classes.agents import PoliAgent
         from app.classes.memory import FixedMemory
@@ -184,16 +322,12 @@ class SimulationService:
         max_interventions_per_agent = config_version.parameters.get("max_interventions_per_agent")
         
         from sqlmodel import select
-        events_stmt = (
-            select(RunEvent)
-            .where(RunEvent.run_id == run_id)
-            .order_by(RunEvent.iteration)
+        interventions_stmt = (
+            select(Intervention)
+            .where(Intervention.run_id == run_id)
+            .order_by(Intervention.iteration)
         )
-        events = db.exec(events_stmt).all()
-        
-        embedder = create_sentence_embedder(
-            model_type=config_version.parameters.get("embedding_model", "onnx_minilm")
-        )
+        interventions = db.exec(interventions_stmt).all()
         
         voting_agents = []
         for i, agent_data in enumerate(version_agents):
@@ -216,7 +350,6 @@ class SimulationService:
                 name=agent_data.get("name", f"Agent {i}"),
                 background=agent_data.get("profile", ""),
                 topic=topic,
-                embedder=embedder,
                 model=agent_model,
                 memory_size=3,
                 react_max_iters=6,
@@ -226,19 +359,19 @@ class SimulationService:
             )
             voting_agents.append(agent)
         
-        # Reconstruct agent state from stored events (MUCH more efficient)
+        # Reconstruct agent state from stored interventions
         agent_last_opinions = {}
         agent_memories = {agent.name: [] for agent in voting_agents}
         
-        # Process events to build final state
-        for event in events:
+        # Process interventions to build final state
+        for intervention in interventions:
             # Track last opinion for each speaker
-            agent_last_opinions[event.speaker] = event.opinion
+            agent_last_opinions[intervention.speaker] = intervention.content
             
             # Add opinions to memory of engaged agents
-            for agent_name in event.engaged:
+            for agent_name in intervention.engaged_agents:
                 if agent_name in agent_memories:
-                    agent_memories[agent_name].append(event.opinion)
+                    agent_memories[agent_name].append(intervention.content)
         
         # Apply reconstructed state to voting agents
         for agent in voting_agents:

@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from sqlmodel import Session, select
 
-from app.api.schemas import ConfigTemplatesListResponse, ConfigTemplateResponse, ConfigTemplateListItem, AgentSnapshotResponse
+from app.api.schemas import ConfigTemplateResponse, ConfigTemplateListItem, ConfigTemplatesListResponse, AgentSnapshotResponse, WebSearchToolsConfig
 from app.models import ConfigTemplate, TemplateAgentSnapshot, User
 from app.dependencies import get_db, get_current_user
 
@@ -108,8 +108,10 @@ async def get_config_template(
         AgentSnapshotResponse(
             position=snapshot.position,
             name=snapshot.name,
-            background=snapshot.background,
-            snapshot=snapshot.snapshot,
+            profile=snapshot.snapshot.get("profile", ""),
+            model_id=snapshot.snapshot.get("model_id"),
+            web_search_tools=WebSearchToolsConfig(**snapshot.snapshot.get("web_search_tools", {})) if snapshot.snapshot.get("web_search_tools") else None,
+            canvas_position=None,  # Templates don't have canvas positions
             created_at=snapshot.created_at
         )
         for snapshot in agent_snapshots

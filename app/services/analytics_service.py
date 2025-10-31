@@ -4,15 +4,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlmodel import SQLModel
 
-from ..models import RunEvent, RunAnalytics, Run
-from ..classes.nlp import SentenceEmbedder
+from ..models import Intervention, RunAnalytics, Run
 
 
 class AnalyticsService:
     """Service for computing and caching simulation analytics"""
-    
-    def __init__(self, sentence_embedder: Optional[SentenceEmbedder] = None):
-        self.embedder = sentence_embedder
     
     def get_or_compute_analytics(self, run_id: UUID, db: Session) -> Optional[Dict[str, Any]]:
         """
@@ -53,45 +49,45 @@ class AnalyticsService:
         return self._format_analytics_response(analytics)
     
     def _compute_analytics(self, run_id: UUID, db: Session) -> Optional[Dict[str, Any]]:
-        """Compute analytics from RunEvent data"""
+        """Compute analytics from Intervention data"""
         
-        # Get all events for this run, ordered by iteration
+        # Get all interventions for this run, ordered by iteration
         # Use SQLAlchemy query method for better compatibility
-        events = db.query(RunEvent).filter(RunEvent.run_id == run_id).order_by(RunEvent.iteration).all()
+        interventions = db.query(Intervention).filter(Intervention.run_id == run_id).order_by(Intervention.iteration).all()
         
-        if not events:
+        if not interventions:
             return None
         
-        # Extract unique agent names from all events
+        # Extract unique agent names from all interventions
         all_agents = set()
-        for event in events:
-            all_agents.add(event.speaker)
-            all_agents.update(event.engaged)
+        for intervention in interventions:
+            all_agents.add(intervention.speaker)
+            all_agents.update(intervention.engaged_agents)
         
         agent_names = sorted(list(all_agents))
         agent_to_index = {name: idx for idx, name in enumerate(agent_names)}
         
         # Build engagement matrix: [agent_index][turn] -> 0=inactive, 1=engaged, 2=speaking
         engagement_matrix = []
-        turn_count = len(events)
+        turn_count = len(interventions)
         
         for agent_idx in range(len(agent_names)):
             agent_row = []
-            for event in events:
+            for intervention in interventions:
                 agent_name = agent_names[agent_idx]
-                if agent_name == event.speaker:
+                if agent_name == intervention.speaker:
                     agent_row.append(2)  # Speaking
-                elif agent_name in event.engaged:
+                elif agent_name in intervention.engaged_agents:
                     agent_row.append(1)  # Engaged
                 else:
                     agent_row.append(0)  # Inactive
             engagement_matrix.append(agent_row)
         
         # Compute participation stats
-        participation_stats = self._compute_participation_stats(events, agent_names)
+        participation_stats = self._compute_participation_stats(interventions, agent_names)
         
         # Compute opinion similarity matrix using final opinions
-        opinion_similarity_matrix = self._compute_opinion_similarity(events, agent_names)
+        opinion_similarity_matrix = self._compute_opinion_similarity(interventions, agent_names)
         
         return {
             "engagement_matrix": engagement_matrix,
@@ -100,7 +96,7 @@ class AnalyticsService:
             "opinion_similarity_matrix": opinion_similarity_matrix
         }
     
-    def _compute_participation_stats(self, events: List[RunEvent], agent_names: List[str]) -> Dict[str, Any]:
+    def _compute_participation_stats(self, interventions: List[Intervention], agent_names: List[str]) -> Dict[str, Any]:
         """Compute participation statistics from events"""
         
         # Initialize counters
@@ -108,17 +104,17 @@ class AnalyticsService:
         total_engagements = {name: 0 for name in agent_names}
         
         # Count interventions and engagements
-        for event in events:
+        for intervention in interventions:
             # Count speaking interventions
-            total_interventions[event.speaker] += 1
+            total_interventions[intervention.speaker] += 1
             
             # Count engagements (times agent reacted to someone else)
-            for engaged_agent in event.engaged:
+            for engaged_agent in intervention.engaged_agents:
                 if engaged_agent in total_engagements:
                     total_engagements[engaged_agent] += 1
         
         # Calculate engagement rates (engagements / total_turns)
-        total_turns = len(events)
+        total_turns = len(interventions)
         engagement_rates = {
             name: total_engagements[name] / total_turns if total_turns > 0 else 0
             for name in agent_names
@@ -139,20 +135,23 @@ class AnalyticsService:
             "total_turns": total_turns
         }
     
-    def _compute_opinion_similarity(self, events: List[RunEvent], agent_names: List[str]) -> Optional[Dict[str, Any]]:
+    def _compute_opinion_similarity(self, interventions: List[Intervention], agent_names: List[str]) -> Optional[Dict[str, Any]]:
         """Compute opinion similarity matrix using final opinions of each agent"""
         
-        if not self.embedder:
-            # If no embedder available, return None (similarity matrix will be omitted)
+        try:
+            from app.services.embedding_service import get_embedding_service
+            embedding_service = get_embedding_service()
+        except Exception:
+            # If embedding service fails, return None (similarity matrix will be omitted)
             return None
         
         # Get the last opinion from each agent
         agent_final_opinions = {}
         
-        # Go through events in reverse to get the last opinion from each agent
-        for event in reversed(events):
-            if event.speaker not in agent_final_opinions:
-                agent_final_opinions[event.speaker] = event.opinion
+        # Go through interventions in reverse to get the last opinion from each agent
+        for intervention in reversed(interventions):
+            if intervention.speaker not in agent_final_opinions:
+                agent_final_opinions[intervention.speaker] = intervention.content
         
         # Only include agents who actually spoke
         speaking_agents = []
@@ -174,7 +173,7 @@ class AnalyticsService:
                 if i == j:
                     similarity_data[f"{agent_i}_vs_{agent_j}"] = 1.0  # Self-similarity is 1.0
                 else:
-                    similarity = self.embedder.text_similarity_score(final_opinions[i], final_opinions[j])
+                    similarity = embedding_service.text_similarity_score(final_opinions[i], final_opinions[j])
                     similarity_data[f"{agent_i}_vs_{agent_j}"] = float(similarity)
         
         # Also create traditional matrix format for backwards compatibility
@@ -185,7 +184,7 @@ class AnalyticsService:
                 if i == j:
                     similarity_row.append(1.0)  # Self-similarity is 1.0
                 else:
-                    similarity = self.embedder.text_similarity_score(opinion_i, opinion_j)
+                    similarity = embedding_service.text_similarity_score(opinion_i, opinion_j)
                     similarity_row.append(float(similarity))  # Ensure it's a regular float
             similarity_matrix.append(similarity_row)
         

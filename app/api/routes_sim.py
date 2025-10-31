@@ -4,10 +4,10 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlmodel import Session, select
 
-from app.api.schemas import CreateSimRequest, AvailableModelsResponse, AvailableModel, RunResponse
+from app.api.schemas import CreateSimRequest, AvailableModelsResponse, AvailableModel, AvailableToolsResponse, AvailableTool, RunResponse
 from app.services.config_service import create_or_update_config
 from app.services.analytics_service import AnalyticsService
-from app.models import Run, RunEvent, Config, User
+from app.models import Run, Intervention, ToolUsage, Config, User
 from app.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
@@ -37,6 +37,86 @@ async def get_available_models_endpoint(current_user: User = Depends(get_current
         return AvailableModelsResponse(models=models, default_model=DEFAULT_MODEL)
     except Exception as e:
         raise HTTPException(500, f"Failed to fetch available models: {str(e)}")
+
+@router.get("/tools", response_model=AvailableToolsResponse)
+async def get_available_tools_endpoint():
+    """Get available tools for the frontend."""
+    web_search_tools = [
+        AvailableTool(
+            id="wikipedia_tool",
+            name="Wikipedia",
+            description="Search Wikipedia articles",
+            icon="BookOpen",
+            config_schema={
+                "enabled": {"type": "boolean", "default": False, "description": "Enable Wikipedia search"},
+                "canvas_position": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number", "description": "X coordinate on canvas"},
+                        "y": {"type": "number", "description": "Y coordinate on canvas"}
+                    },
+                    "description": "Position of tool node on visual canvas"
+                }
+            }
+        ),
+        AvailableTool(
+            id="news_tool",
+            name="News",
+            description="Search news articles",
+            icon="Newspaper",
+            config_schema={
+                "enabled": {"type": "boolean", "default": False, "description": "Enable news search"},
+                "sources": {"type": "array", "items": {"type": "string"}, "default": [], "description": "News source domains to search"},
+                "canvas_position": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number", "description": "X coordinate on canvas"},
+                        "y": {"type": "number", "description": "Y coordinate on canvas"}
+                    },
+                    "description": "Position of tool node on visual canvas"
+                }
+            }
+        ),
+        AvailableTool(
+            id="pages_tool",
+            name="Web Pages",
+            description="Search general web pages",
+            icon="Globe",
+            config_schema={
+                "enabled": {"type": "boolean", "default": False, "description": "Enable general web page search"},
+                "sources": {"type": "array", "items": {"type": "string"}, "default": [], "description": "Web page domains to search"},
+                "canvas_position": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number", "description": "X coordinate on canvas"},
+                        "y": {"type": "number", "description": "Y coordinate on canvas"}
+                    },
+                    "description": "Position of tool node on visual canvas"
+                }
+            }
+        ),
+        AvailableTool(
+            id="google_ai_tool",
+            name="Google AI",
+            description="Enhanced search with AI summaries",
+            icon="Sparkles",
+            config_schema={
+                "enabled": {"type": "boolean", "default": False, "description": "Enable Google AI enhanced search"},
+                "canvas_position": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number", "description": "X coordinate on canvas"},
+                        "y": {"type": "number", "description": "Y coordinate on canvas"}
+                    },
+                    "description": "Position of tool node on visual canvas"
+                }
+            }
+        )
+    ]
+    
+    return AvailableToolsResponse(tools={
+        "web_search_tools": web_search_tools
+    })
 
 @router.post("")
 async def create_and_run_simulation(
@@ -166,14 +246,52 @@ async def get_simulation_status(
             config_name = config.name
             is_latest_version = run.config_version_when_run == config.version_number
     
-    # Get recent events (last 10 for better context)
-    recent_events_stmt = (
-        select(RunEvent)
-        .where(RunEvent.run_id == run_uuid)
-        .order_by(RunEvent.iteration.desc())
-        .limit(10)
+    # Get recent interventions with their tool usage (last 10 for better context)
+    recent_interventions_stmt = (
+        select(Intervention)
+        .where(Intervention.run_id == run_uuid)
+        .order_by(Intervention.iteration.desc())
     )
-    recent_events = db.exec(recent_events_stmt).all()
+    recent_interventions = db.exec(recent_interventions_stmt).all()
+    
+    # Build enhanced latest_events with tool usage
+    latest_events = []
+    for intervention in reversed(recent_interventions):  # Chronological order
+        # Get tool usage for this intervention
+        tools_stmt = (
+            select(ToolUsage)
+            .where(ToolUsage.intervention_id == intervention.id)
+            .order_by(ToolUsage.created_at)
+        )
+        tool_usages = db.exec(tools_stmt).all()
+        
+        event_data = {
+            "iteration": intervention.iteration,
+            "speaker": intervention.speaker,
+            "opinion": intervention.content,  # Keep "opinion" for backward compatibility
+            "engaged": intervention.engaged_agents,  # Keep "engaged" for backward compatibility
+            "finished": intervention.finished,
+            "timestamp": intervention.created_at.isoformat(),
+            # Enhanced data
+            "reasoning_steps": intervention.reasoning_steps or [],  # Backward compatibility
+            "prediction_metadata": intervention.prediction_metadata or {},
+            "tool_usages": [  # Backward compatibility
+                {
+                    "id": str(tool.id),
+                    "tool_name": tool.tool_name,
+                    "query": tool.query,
+                    "output": tool.output,
+                    "execution_time": tool.execution_time,
+                    "created_at": tool.created_at.isoformat()
+                }
+                for tool in tool_usages
+            ]
+        }
+        
+        # NEW: Add unified timeline if metadata contains it
+        if intervention.prediction_metadata and intervention.prediction_metadata.get('timeline'):
+            event_data["reasoning_timeline"] = intervention.prediction_metadata['timeline']
+        latest_events.append(event_data)
     
     # Get config version to calculate progress
     from app.models import ConfigVersion
@@ -198,17 +316,7 @@ async def get_simulation_status(
             "max_iterations": max_iters,
             "percentage": min(progress_percentage, 100)
         },
-        latest_events=[
-            {
-                "iteration": event.iteration,
-                "speaker": event.speaker,
-                "opinion": event.opinion,
-                "engaged": event.engaged,
-                "finished": event.finished,
-                "timestamp": event.created_at.isoformat()
-            }
-            for event in reversed(recent_events)  # Chronological order
-        ],
+        latest_events=latest_events,
         is_finished=run.finished,
         stopped_reason=run.stopped_reason,
         started_at=run.started_at,
@@ -424,17 +532,8 @@ async def analyze_simulation(
     if run.user_id != current_user.id:
         raise HTTPException(404, "Simulation not found")  # Don't reveal that it exists but is not accessible
     
-    # Create sentence embedder using default config (for similarity matrix)
-    sentence_embedder = None
-    try:
-        from app.classes.nlp import create_sentence_embedder
-        # Use default embedding model (onnx_minilm for efficiency)
-        sentence_embedder = create_sentence_embedder(model_type="onnx_minilm")
-    except Exception:
-        # If embedder creation fails, analytics will work without similarity matrix
-        pass
-    
-    analytics_service = AnalyticsService(sentence_embedder)
+    # Create analytics service (uses shared embedding service internally)
+    analytics_service = AnalyticsService()
     
     # Use short-lived session pattern
     analytics = analytics_service.get_or_compute_analytics(run_uuid, db)
@@ -446,3 +545,153 @@ async def analyze_simulation(
         raise HTTPException(400, analytics["error"])
     
     return analytics
+
+
+# -----------------------
+# NEW: Enhanced Data Endpoints
+# -----------------------
+
+@router.get("/{sim_id}/interventions")
+async def get_simulation_interventions(
+    sim_id: str,
+    include_reasoning: bool = False,
+    include_tools: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get interventions (enhanced version of events) with optional reasoning and tool data.
+    
+    Query Parameters:
+    - include_reasoning: Include internal reasoning steps in response
+    - include_tools: Include tool usage data for each intervention
+    """
+    from app.models import Intervention, ToolUsage
+    
+    try:
+        run_uuid = UUID(sim_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid simulation ID")
+    
+    # Check if user owns this run
+    run = db.get(Run, run_uuid)
+    if not run or run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")
+    
+    # Get interventions
+    interventions_stmt = (
+        select(Intervention)
+        .where(Intervention.run_id == run_uuid)
+        .order_by(Intervention.iteration)
+    )
+    interventions = db.exec(interventions_stmt).all()
+    
+    # Build response
+    result = []
+    for intervention in interventions:
+        intervention_data = {
+            "id": str(intervention.id),
+            "iteration": intervention.iteration,
+            "speaker": intervention.speaker,
+            "content": intervention.content,
+            "engaged_agents": intervention.engaged_agents,
+            "finished": intervention.finished,
+            "stopped_reason": intervention.stopped_reason,
+            "created_at": intervention.created_at.isoformat()
+        }
+        
+        # Include reasoning if requested
+        if include_reasoning and intervention.reasoning_steps:
+            intervention_data["reasoning_steps"] = intervention.reasoning_steps
+        
+        # Include prediction metadata if available
+        if intervention.prediction_metadata:
+            intervention_data["prediction_metadata"] = intervention.prediction_metadata
+        
+        # Include tool usage if requested
+        if include_tools:
+            tools_stmt = (
+                select(ToolUsage)
+                .where(ToolUsage.intervention_id == intervention.id)
+            )
+            tools = db.exec(tools_stmt).all()
+            
+            intervention_data["tool_usages"] = [
+                {
+                    "id": str(tool.id),
+                    "tool_name": tool.tool_name,
+                    "query": tool.query,
+                    "output": tool.output,
+                    "execution_time": tool.execution_time,
+                    "created_at": tool.created_at.isoformat()
+                }
+                for tool in tools
+            ]
+        
+        result.append(intervention_data)
+    
+    return {
+        "simulation_id": sim_id,
+        "interventions": result,
+        "total": len(result)
+    }
+
+
+@router.get("/{sim_id}/interventions/{intervention_id}/tools")
+async def get_intervention_tools(
+    sim_id: str,
+    intervention_id: str,
+    agent_name: str = None,  # Filter by specific agent
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get tool usage details for a specific intervention.
+    
+    Query Parameters:
+    - agent_name: Filter tool usage by specific agent (optional)
+    """
+    from app.models import Intervention, ToolUsage
+    
+    try:
+        run_uuid = UUID(sim_id)
+        intervention_uuid = UUID(intervention_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid simulation or intervention ID")
+    
+    # Check if user owns this run
+    run = db.get(Run, run_uuid)
+    if not run or run.user_id != current_user.id:
+        raise HTTPException(404, "Simulation not found")
+    
+    # Check if intervention exists
+    intervention = db.get(Intervention, intervention_uuid)
+    if not intervention or intervention.run_id != run_uuid:
+        raise HTTPException(404, "Intervention not found")
+    
+    # Get tool usages
+    tools_stmt = select(ToolUsage).where(ToolUsage.intervention_id == intervention_uuid)
+    
+    if agent_name:
+        tools_stmt = tools_stmt.where(ToolUsage.agent_name == agent_name)
+    
+    tools = db.exec(tools_stmt).all()
+    
+    return {
+        "simulation_id": sim_id,
+        "intervention_id": intervention_id,
+        "tools": [
+            {
+                "id": str(tool.id),
+                "agent_name": tool.agent_name,
+                "tool_name": tool.tool_name,
+                "query": tool.query,
+                "output": tool.output,
+                "execution_time": tool.execution_time,
+                "raw_results": tool.raw_results,
+                "created_at": tool.created_at.isoformat()
+            }
+            for tool in tools
+        ],
+        "total": len(tools)
+    }

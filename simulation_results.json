@@ -1,0 +1,120 @@
+{
+  "simulation_metadata": {
+    "num_games": 3,
+    "timestamp": "2025-10-28T22:53:25.744790"
+  },
+  "cumulative_stats": {
+    "total_games": 3,
+    "crew_wins": 2,
+    "imposter_wins": 1,
+    "player_stats": {
+      "J.C. Bodoque": {
+        "total_points": 6,
+        "games_as_crew": 2,
+        "games_as_imposter": 1,
+        "times_eliminated": 2,
+        "times_survived": 1
+      },
+      "Policarpo": {
+        "total_points": 2,
+        "games_as_crew": 3,
+        "games_as_imposter": 0,
+        "times_eliminated": 2,
+        "times_survived": 1
+      },
+      "Tulio Triviño": {
+        "total_points": 11,
+        "games_as_crew": 2,
+        "games_as_imposter": 1,
+        "times_eliminated": 0,
+        "times_survived": 3
+      },
+      "Mario Hugo": {
+        "total_points": 7,
+        "games_as_crew": 3,
+        "games_as_imposter": 0,
+        "times_eliminated": 1,
+        "times_survived": 2
+      },
+      "Elemento": {
+        "total_points": 4,
+        "games_as_crew": 2,
+        "games_as_imposter": 1,
+        "times_eliminated": 2,
+        "times_survived": 1
+      }
+    }
+  },
+  "all_games": [
+    {
+      "game_number": 1,
+      "winner": "crew",
+      "imposter": "Elemento",
+      "secret_scientist": "Enrico Fermi",
+      "total_rounds": 2,
+      "final_scores": {
+        "J.C. Bodoque": 3,
+        "Policarpo": 0,
+        "Tulio Triviño": 3,
+        "Mario Hugo": 3,
+        "Elemento": 1
+      },
+      "updated_strategies": {
+        "J.C. Bodoque": "• Engage in more collaborative discussions before voicing suspicion to avoid appearing unilateral or hasty.  \n• Continue using specific, context-rich clues but increase subtle references that build on others’ contributions to form stronger verification chains.  \n• Maintain calling out generic or vague clues early, but temper it with playful irony to test reactions without alienating teammates.  \n• Introduce more misleading jokes or fake accusations strategically to provoke revealing responses from potential imposters without compromising crew trust.",
+        "Policarpo": "• Select clues with clearer, more widely recognized scientific or historical relevance to avoid vague or off-track perceptions.  \n• Anticipate and prepare concise defenses for my clues to demonstrate their relevance and prevent others’ doubts from undermining my logic.  \n• Balance specificity with accessibility by linking my clues to commonly known facts while maintaining enough precision to exclude imposters.  \n• Monitor group reactions closely and adjust my communication style to build trust early, minimizing suspicion that leads to premature elimination.",
+        "Tulio Triviño": "• Maintain my confident style but avoid rushing to bold accusations in the early rounds to prevent eliminating helpful crewmates.  \n• Continue using highly specific, historically grounded clues that build thematic connections without revealing too much to the imposter.  \n• Pay closer attention to others’ clues and build on them strategically to form verification chains that expose vague or generic impostor hints.  \n• Balance my outgoing nature by listening more carefully before talking to avoid overshadowing useful information from teammates.",
+        "Mario Hugo": "• More confidently challenge vague or generic clues from others to help reveal the imposter faster without disrupting group harmony.  \n• Continue using specific but subtle scientific references that connect well with previous clues to build stronger verification chains.  \n• Maintain a calm, collaborative tone but speak up earlier when suspecting inconsistencies to support the crew’s progress.  \n• Balance empathy with critical observation by gently defending teammates while still highlighting suspicious behavior when necessary.",
+        "Elemento": "• Start with more precise, historically connected clues rather than broad terms to build early credibility and avoid suspicion.  \n• Mirror Mario Hugo’s votes and suspicions closely while being ready to defend him emotionally if others target him.  \n• Avoid voting for myself to prevent confirming others’ doubts and instead focus on casting suspicion subtly on others.  \n• Engage more with the group’s logic by referencing specific clues and demonstrating understanding to blend in better."
+      }
+    },
+    {
+      "game_number": 2,
+      "winner": "imposter",
+      "imposter": "Tulio Triviño",
+      "secret_scientist": "Stephen Hawking",
+      "total_rounds": 3,
+      "final_scores": {
+        "J.C. Bodoque": 2,
+        "Policarpo": 2,
+        "Tulio Triviño": 5,
+        "Mario Hugo": 1,
+        "Elemento": 0
+      },
+      "updated_strategies": {
+        "J.C. Bodoque": "• Collaborate more before accusing to avoid alienating allies and appearing overly aggressive or unilateral.  \n• Use my strong, context-rich clues to build on others’ input subtly, creating a web of mutual verification rather than standing solo.  \n• Balance irony and fake accusations carefully, ensuring they provoke reactions without making me a primary suspect.  \n• Defend myself more convincingly and moderate my tone to prevent overconfidence from turning into suspicion.",
+        "Policarpo": "• Prioritize using clues with precise, widely recognized references consistently to maintain a strong, credible narrative throughout the game.  \n• Avoid shifting to broader or vaguer terms mid-game to prevent diluting my established logical framework and losing influence.  \n• Prepare succinct, evidence-based defenses for each clue in advance to quickly dispel doubts and reinforce my rational image.  \n• Continuously gauge group dynamics and adapt communication style early to build trust and minimize suspicion that could lead to premature targeting.",
+        "Tulio Triviño": "• Keep using confident, specific thematic clues like “EventHorizon” and “Stephen” to reinforce my imposter facade without overexplaining.  \n• Avoid rushing to bold accusations early on to prevent accidentally helping crewmates and drawing too much attention.  \n• Listen more carefully and build on others’ clues to create strong verification chains that expose vague impostor hints.  \n• Balance my outgoing style by talking less over others and focusing on strategic influence rather than just seeking the spotlight.",
+        "Mario Hugo": "• Challenge vague or generic clues more confidently early on to help clarify the situation without creating conflict.  \n• Use sharper, more distinctive scientific references that build clear connections to previous clues and demonstrate deeper knowledge.  \n• Speak up sooner when noticing inconsistencies or suspicious behavior, balancing gentle defense with constructive critique.  \n• Vote thoughtfully but more proactively, trusting calm reasoning while contributing my own observations to guide the group's decisions.",
+        "Elemento": "• Choose clues that are specific and historically connected to show deeper knowledge and build trust early on.  \n• Continue to follow Mario Hugo’s lead closely but prepare clearer, more confident explanations to avoid appearing vague or passive.  \n• Defend Mario emotionally if attacked, but also engage more actively in group discussions to demonstrate understanding and commitment.  \n• Avoid broad or generic clues that raise suspicion and instead focus on contributing meaningfully to the logic of the group’s reasoning."
+      }
+    },
+    {
+      "game_number": 3,
+      "winner": "crew",
+      "imposter": "J.C. Bodoque",
+      "secret_scientist": "Paul Dirac",
+      "total_rounds": 2,
+      "final_scores": {
+        "J.C. Bodoque": 1,
+        "Policarpo": 0,
+        "Tulio Triviño": 3,
+        "Mario Hugo": 3,
+        "Elemento": 3
+      },
+      "updated_strategies": {
+        "J.C. Bodoque": "• Use more specific, context-rich clues tied directly to the theme to avoid vague associations that raise suspicion.  \n• Collaborate and build on others’ inputs subtly before casting doubts to create a network of mutual trust rather than isolated accusations.  \n• Calibrate irony and fake accusations to provoke reactions without making myself the primary target of suspicion.  \n• Defend myself with measured confidence and avoid overplaying aggression to prevent early unanimous votes against me.",
+        "Policarpo": "• Select clues with precise, distinctive references rather than broad or generic terms to minimize early suspicion.  \n• Engage proactively in discussions from the outset to establish a trustworthy, rational narrative and counter emerging doubts.  \n• Prepare concise, logical defenses for each clue to swiftly address critiques and reinforce credibility.  \n• Monitor group dynamics closely early on and adapt communication style to build alliances and reduce targeting risk.",
+        "Tulio Triviño": "• Use confident and precise thematic clues like “DiracSea” and “Magnetic” to anchor discussions but avoid overcommitting to early suspicions that may mislead the crew.  \n• Balance my outgoing nature by listening more carefully to others’ inputs and building on their clues to create stronger, collective evidence chains.  \n• Hold back from rushing bold accusations in the first rounds to reduce the risk of eliminating innocent crewmates and drawing unwanted attention.  \n• Focus on strategic influence through well-timed, clear reasoning rather than dominating conversations solely for spotlight, ensuring better group alignment.",
+        "Mario Hugo": "• Speak up more assertively early on to question vague clues and prevent premature votes that might target innocent players.  \n• Continue using precise, context-rich scientific references to reinforce my credibility and guide the team’s understanding.  \n• Balance gentle defense of others with timely, constructive suspicions to maintain harmony while promoting effective decision-making.  \n• Vote promptly after calmly assessing the situation, contributing my own observations rather than only following others.",
+        "Elemento": "• Prepare clearer and more precise explanations for my clues to avoid appearing vague or passive.  \n• Take a more active role in discussions early on to help steer group decisions and defend my position confidently.  \n• Continue to support Mario but balance loyalty with proactive engagement to show commitment beyond just following.  \n• Avoid hesitation in defending myself or trusted allies to prevent wrongful eliminations and maintain group trust."
+      }
+    }
+  ],
+  "final_strategies": {
+    "J.C. Bodoque": "• Use more specific, context-rich clues tied directly to the theme to avoid vague associations that raise suspicion.  \n• Collaborate and build on others’ inputs subtly before casting doubts to create a network of mutual trust rather than isolated accusations.  \n• Calibrate irony and fake accusations to provoke reactions without making myself the primary target of suspicion.  \n• Defend myself with measured confidence and avoid overplaying aggression to prevent early unanimous votes against me.",
+    "Policarpo": "• Select clues with precise, distinctive references rather than broad or generic terms to minimize early suspicion.  \n• Engage proactively in discussions from the outset to establish a trustworthy, rational narrative and counter emerging doubts.  \n• Prepare concise, logical defenses for each clue to swiftly address critiques and reinforce credibility.  \n• Monitor group dynamics closely early on and adapt communication style to build alliances and reduce targeting risk.",
+    "Tulio Triviño": "• Use confident and precise thematic clues like “DiracSea” and “Magnetic” to anchor discussions but avoid overcommitting to early suspicions that may mislead the crew.  \n• Balance my outgoing nature by listening more carefully to others’ inputs and building on their clues to create stronger, collective evidence chains.  \n• Hold back from rushing bold accusations in the first rounds to reduce the risk of eliminating innocent crewmates and drawing unwanted attention.  \n• Focus on strategic influence through well-timed, clear reasoning rather than dominating conversations solely for spotlight, ensuring better group alignment.",
+    "Mario Hugo": "• Speak up more assertively early on to question vague clues and prevent premature votes that might target innocent players.  \n• Continue using precise, context-rich scientific references to reinforce my credibility and guide the team’s understanding.  \n• Balance gentle defense of others with timely, constructive suspicions to maintain harmony while promoting effective decision-making.  \n• Vote promptly after calmly assessing the situation, contributing my own observations rather than only following others.",
+    "Elemento": "• Prepare clearer and more precise explanations for my clues to avoid appearing vague or passive.  \n• Take a more active role in discussions early on to help steer group decisions and defend my position confidently.  \n• Continue to support Mario but balance loyalty with proactive engagement to show commitment beyond just following.  \n• Avoid hesitation in defending myself or trusted allies to prevent wrongful eliminations and maintain group trust."
+  }
+}

@@ -2,7 +2,6 @@ from typing import List, Optional
 import random
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from .nlp import SentenceEmbedder
 from .agents import PoliAgent
 
 
@@ -17,12 +16,10 @@ class Moderator:
     def __init__(
         self,
         agents: List[PoliAgent],
-        embedder: SentenceEmbedder,
         stance: str = "",
         bias: Optional[List[float]] = None,
         max_interventions_per_agent: Optional[int] = None,
     ):
-        self._embedder = embedder
         self.agents = agents
         self._requests: List[PoliAgent] = []
         self.interventions = [0] * len(agents)
@@ -137,11 +134,14 @@ class Moderator:
         """
         Detect when opinions are converging too much (to stop simulation).
         """
+        from app.services.embedding_service import get_embedding_service
+        
         last_opinions = [a.last_opinion for a in agents if a.last_opinion]
         if len(last_opinions) < 2:
             return False
 
-        embeddings = self._embedder.encode(last_opinions)
+        embedding_service = get_embedding_service()
+        embeddings = embedding_service.encode(last_opinions)
         similarity_matrix = cosine_similarity(embeddings)
         n = len(last_opinions)
         total = similarity_matrix.sum() - np.trace(similarity_matrix)

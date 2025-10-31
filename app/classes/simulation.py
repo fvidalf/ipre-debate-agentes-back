@@ -1,12 +1,17 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from uuid import UUID
 import dspy
 
 from .agents import PoliAgent
 from .moderator import Moderator
 from .model_config import create_agent_lm, DEFAULT_MODEL
-
+from .tools import (
+    create_web_search_tools_for_agents, 
+    create_recall_tools_for_agents,
+    RecallDocumentService
+)
 
 agents: List[PoliAgent] = []  # will be set by Simulation at start
 
@@ -18,16 +23,19 @@ class InternalAgentConfig:
     profile: str
     model_id: Optional[str] = None
     lm_config: Optional[Dict[str, Any]] = None  # Language model parameters
+    web_search_tools: Optional[Dict[str, Any]] = None  # Web search tools configuration
+    recall_tools: Optional[Dict[str, Any]] = None  # Recall tools configuration
 
 
 @dataclass
 class Simulation:
     topic: str
     agent_configs: List[InternalAgentConfig]
-    embedder: Any
     lm: dspy.LM
     api_base: str
     api_key: str
+    run_id: UUID  # Required for document assignment
+    db_engine: Any  # Database engine for document operations
     max_iters: int = 21
     bias: Optional[List[float]] = None
     stance: str = ""
@@ -51,6 +59,30 @@ class Simulation:
 
     def _build_agents(self) -> List[PoliAgent]:
         objs: List[PoliAgent] = []
+        
+        # Step 1: Create web search tools for all agents
+        web_search_configs = {}
+        for idx, agent_config in enumerate(self.agent_configs):
+            if agent_config.web_search_tools:
+                web_search_configs[f"agent_{idx}"] = agent_config.web_search_tools
+                print(f"🔧 Agent {idx} ({agent_config.name}) has web search tools: {agent_config.web_search_tools}")
+            else:
+                print(f"❌ Agent {idx} ({agent_config.name}) has no web search tools")
+        
+        web_search_tools = create_web_search_tools_for_agents(web_search_configs)
+
+        # Step 2: Create recall tools for all agents
+        recall_configs = {}
+        for idx, agent_config in enumerate(self.agent_configs):
+            if agent_config.recall_tools:
+                recall_configs[f"agent_{idx}"] = agent_config.recall_tools
+                print(f"🔧 Agent {idx} ({agent_config.name}) has recall tools: {agent_config.recall_tools}")
+            else:
+                print(f"❌ Agent {idx} ({agent_config.name}) has no recall tools")
+
+        recall_tools = create_recall_tools_for_agents(recall_configs)
+
+        # Step 3: Create agents with their tools and models
         for idx, agent_config in enumerate(self.agent_configs):
             agent_model = None
             
@@ -75,16 +107,19 @@ class Simulation:
                         **lm_params
                     )
 
-            # Create agent with its individual LM - BACK TO ORIGINAL APPROACH
-            # No context manager, just pass the model directly like before
+            # Get web search tool for this agent
+            web_search_tool = web_search_tools.get(f"agent_{idx}")
+            recall_tool = recall_tools.get(f"agent_{idx}")
+
+            # Create agent with its individual LM and web search tool
             a = PoliAgent(
                 agent_id=idx,
                 name=agent_config.name,
                 background=agent_config.profile,
                 topic=self.topic,
-                embedder=self.embedder,
                 model=agent_model,
                 max_interventions=self.max_interventions_per_agent,
+                tools=[web_search_tool, recall_tool]
             )
             objs.append(a)
         return objs
@@ -92,6 +127,19 @@ class Simulation:
     def start(self) -> None:
         if self._started:
             return
+            
+        # Assign documents to agents before building agents
+        recall_configs = {}
+        agent_names = []
+        for idx, agent_config in enumerate(self.agent_configs):
+            agent_names.append(agent_config.name)
+            if agent_config.recall_tools:
+                recall_configs[agent_config.name] = agent_config.recall_tools
+        
+        # Assign documents in database
+        recall_service = RecallDocumentService(self.db_engine)
+        recall_service.assign_documents_to_run(recall_configs, agent_names, self.run_id)
+        
         self._agents = self._build_agents()
         global agents
         agents = self._agents
@@ -101,7 +149,6 @@ class Simulation:
 
         self._mod = Moderator(
             self._agents,
-            embedder=self.embedder,
             stance=self.stance,
             bias=self.bias,
             max_interventions_per_agent=self.max_interventions_per_agent,
@@ -199,6 +246,8 @@ class Simulation:
 
         if stopped_reason:
             self._finished = True
+            # Release documents when simulation finishes
+            self._cleanup_documents()
         else:
             self._locutor = next_locutor
             self.iters += 1
@@ -242,6 +291,19 @@ class Simulation:
         return Yea, Nay, reasons
 
     # -----------------------------------------------------------------------
+    # Cleanup
+    # -----------------------------------------------------------------------
+
+    def _cleanup_documents(self) -> None:
+        """Release documents assigned to agents when simulation finishes."""
+        try:
+            recall_service = RecallDocumentService(self.db_engine)
+            recall_service.release_documents_from_run(self.run_id)
+        except Exception as e:
+            # Don't fail simulation for cleanup errors, just log
+            print(f"Warning: Failed to cleanup documents for run {self.run_id}: {e}")
+
+    # -----------------------------------------------------------------------
     # Snapshot
     # -----------------------------------------------------------------------
 
@@ -263,6 +325,8 @@ class Simulation:
                     "intervention_count": agent.interventions_used,
                     "max_interventions": agent.max_interventions,
                     "can_intervene": agent.can_intervene(),
+                    "has_web_search": agent.web_search_tool is not None,
+                    "last_tool_usage": getattr(agent, 'last_tool_usage', None),
                 }
                 for agent in self._agents
             ],

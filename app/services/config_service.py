@@ -56,11 +56,22 @@ def create_config_version(
         elif position in canvas_positions and canvas_positions[position]:
             canvas_pos = canvas_positions[position]
         
+        # Use dict with exclude_none=False to preserve None values in canvas_position
+        # and ensure nested models also preserve None values
+        web_search_tools = None
+        recall_tools = None
+        if agent.web_search_tools:
+            web_search_tools = agent.web_search_tools.dict(exclude_none=False, by_alias=False)
+        if agent.recall_tools:
+            recall_tools = agent.recall_tools.dict(exclude_none=False, by_alias=False)
+            
         agents_data.append({
             "name": agent.name,
             "profile": agent.profile,
             "model_id": agent.model_id,
             "lm_config": agent.lm_config.dict() if agent.lm_config else None,
+            "web_search_tools": web_search_tools,
+            "recall_tools": recall_tools,
             "canvas_position": canvas_pos
         })
     
@@ -125,23 +136,34 @@ def create_or_update_config(
             raise ValueError(f"Config {config_id} not found")
         
         # Check if anything actually changed
-        if config.parameters != parameters:
-            # Config changed, increment version
+        # print(f"🔍 Config parameters check: stored={config.parameters}")
+        # print(f"🔍 Config parameters check: incoming={parameters}")
+        
+        parameters_changed = config.parameters != parameters
+        # print(f"🔍 Parameters changed: {parameters_changed}")
+        
+        # Always update agents when provided (consistent with PATCH behavior)
+        # But only increment version if parameters actually changed
+        if parameters_changed:
+            # print(f"🔧 Parameters changed - updating config version and agents")
             config.version_number += 1
             config.parameters = parameters
             config.updated_at = datetime.utcnow()
+        else:
+            pass
+            # print(f"🔧 Parameters unchanged - but still updating agents with current data")
             
-            # Create version record for this new version
-            create_config_version(
-                db=db,
-                config_id=config.id,
-                version_number=config.version_number,
-                agents=agents,
-                **parameters
-            )
-            
-            # Update agent snapshots in current config
-            _update_config_agents(db, config.id, agents)
+        # Always create/update version record and agents (using current or incremented version)
+        create_config_version(
+            db=db,
+            config_id=config.id,
+            version_number=config.version_number,
+            agents=agents,
+            **parameters
+        )
+        
+        # Always update agent snapshots when running simulation
+        _update_config_agents(db, config.id, agents)
         
         return config
     else:
@@ -224,10 +246,8 @@ def update_config_manual(
     if max_interventions_per_agent is not None:
         current_params["max_interventions_per_agent"] = max_interventions_per_agent
     
-    # Handle agents update
+    # Update agent snapshots if agents were provided
     if agents is not None:
-        # Agents are no longer stored in parameters - only in ConfigAgent table
-        # Update agent snapshots if agents were provided
         _update_config_agents(db, config.id, agents)
         changed = True
     
@@ -258,15 +278,27 @@ def _create_config_agents(db: Session, config_id: UUID, agents: List[AgentConfig
                 "y": agent.canvas_position.y
             }
         
+        # Use dict with exclude_none=False to preserve None values in canvas_position
+        # and ensure nested models also preserve None values
+
+        web_search_tools = None
+        recall_tools = None
+        if agent.web_search_tools:
+            web_search_tools = agent.web_search_tools.dict(exclude_none=False, by_alias=False)
+
+        if agent.recall_tools:
+            recall_tools = agent.recall_tools.dict(exclude_none=False, by_alias=False)
+
         agent_snapshot = ConfigAgent(
             config_id=config_id,
             position=position,
             name=agent.name,
-            background=None,  # Could be extracted from profile if needed
             canvas_position=canvas_position,
             snapshot={
                 "profile": agent.profile,
-                "model_id": agent.model_id
+                "model_id": agent.model_id,
+                "web_search_tools": web_search_tools,
+                "recall_tools": recall_tools,
             }
         )
         db.add(agent_snapshot)

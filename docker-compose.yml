@@ -1,7 +1,9 @@
 
 services:
   db:
-    image: postgres:16
+    build:
+      context: .
+      dockerfile: Dockerfile.pgvector
     container_name: debate_agents_db
     restart: unless-stopped
     environment:

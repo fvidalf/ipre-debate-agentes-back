@@ -2,7 +2,6 @@ from typing import Optional, Tuple, Dict, Any
 import dspy
 import numpy as np
 from .memory import FixedMemory
-from .nlp import SentenceEmbedder
 
 # ---------------------------------------------------------------------------
 #  DEBUG: Commented out monkey patch for debugging
@@ -86,7 +85,7 @@ class AgentRespondSignature(dspy.Signature):
         desc="Emotional tone or rhetorical style (analytical, passionate, confrontational, etc.)."
     )
     references_used: str = dspy.OutputField(
-        desc="Thinkers, historical events, or examples cited in the response."
+        desc="Sources and examples used in the response. Prefer to use tools to gather references."
     )
     stance_strength: str = dspy.OutputField(
         desc="Qualitative measure of how strongly the agent expresses their view."
@@ -148,13 +147,13 @@ class PoliAgent(dspy.Module):
         name: str,
         background: str,
         topic: str,
-        embedder: SentenceEmbedder,
         model: Optional[dspy.LM] = None,
         memory_size: int = 3,
         react_max_iters: int = 6,
         refine_N: int = 2,
         refine_threshold: float = 0.05,
         max_interventions: Optional[int] = None,
+        tools: Optional[list[callable]] = None,
     ):
         super().__init__()
         self.id = agent_id
@@ -162,7 +161,6 @@ class PoliAgent(dspy.Module):
         self.topic = topic
         self.persona_description = background
         self.memory = FixedMemory(memory_size)
-        self._embedder = embedder
         self.model = model
         self.last_opinion: str = ""
         
@@ -170,13 +168,16 @@ class PoliAgent(dspy.Module):
         self.max_interventions = max_interventions
         self.interventions_used: int = 0
 
-        # Build modules - REVERTED TO ORIGINAL APPROACH
+        # Tool setup
+        self.last_tool_usage = None  # Initialize tool usage tracking
+        self.tools = tools or []
+
+
         if model:
-            # Simple module creation, let DSPy handle LM assignment
             self.intent_module = dspy.Predict(AgentIntentSignature)
             self.respond_module = dspy.ReAct(
                 signature=AgentRespondSignature, 
-                tools=[], 
+                tools=self.tools, 
                 max_iters=react_max_iters
             )
             self.vote_module = dspy.ChainOfThought(AgentVoteSignature)
@@ -194,7 +195,7 @@ class PoliAgent(dspy.Module):
             # Fallback to default behavior when no model provided
             self.intent_module = dspy.Predict(AgentIntentSignature)
             self.respond_module = dspy.ReAct(
-                signature=AgentRespondSignature, tools=[], max_iters=6
+                signature=AgentRespondSignature, tools=tools, max_iters=6
             )
             self.vote_module = dspy.ChainOfThought(AgentVoteSignature)
             self.summarize = dspy.Predict(AgentSummarySignature)
@@ -202,12 +203,14 @@ class PoliAgent(dspy.Module):
         
         # ---------------- Refiner ----------------
         def _reward_novelty_persona(inputs: Dict[str, Any], outputs: Dict[str, Any]) -> float:
-            sim = self._embedder.text_similarity_score
+            from app.services.embedding_service import get_embedding_service
+            
+            embedding_service = get_embedding_service()
             draft = getattr(outputs, "response", "") or ""
             prev = self.last_opinion or ""
             persona = inputs.get("persona_description", "") or ""
-            novelty = 1.0 - float(sim(draft, prev))
-            persona_fit = float(sim(draft, persona))
+            novelty = 1.0 - float(embedding_service.text_similarity_score(draft, prev))
+            persona_fit = float(embedding_service.text_similarity_score(draft, persona))
             return 0.6 * novelty + 0.4 * persona_fit
 
         self._use_refiner = refine_N and refine_N > 0
@@ -282,6 +285,93 @@ class PoliAgent(dspy.Module):
         }
 
     # -----------------------------------------------------------------------
+    # Tool Usage & Metadata Extraction
+    # -----------------------------------------------------------------------
+
+    def _extract_tool_usage_from_prediction(self, prediction) -> Dict[str, Any]:
+        """Extract tool usage and reasoning from DSPy Prediction object, preserving order"""
+        if not hasattr(prediction, 'trajectory') or not prediction.trajectory:
+            return None
+        
+        trajectory = prediction.trajectory
+        
+        # Create unified timeline preserving the original sequence
+        timeline = []
+        tools_used = []
+        reasoning_steps = []
+        
+        # Find max step number to iterate through all steps
+        max_step = -1
+        for key in trajectory.keys():
+            if '_' in key:
+                try:
+                    step_num = int(key.split('_')[-1])
+                    max_step = max(max_step, step_num)
+                except ValueError:
+                    continue
+        
+        # Build timeline in correct order
+        for i in range(max_step + 1):
+            # Add thought if exists
+            thought_key = f'thought_{i}'
+            if thought_key in trajectory:
+                thought = trajectory[thought_key]
+                timeline.append({
+                    'type': 'thought',
+                    'step': i,
+                    'content': thought
+                })
+                reasoning_steps.append(thought)
+            
+            # Add tool usage if exists (skip 'finish' tool)
+            tool_name_key = f'tool_name_{i}'
+            if tool_name_key in trajectory:
+                tool_name = trajectory[tool_name_key]
+                if tool_name != 'finish':
+                    tool_args = trajectory.get(f'tool_args_{i}', {})
+                    observation = trajectory.get(f'observation_{i}', '')
+                    
+                    tool_usage = {
+                        'tool_name': tool_name,
+                        'query': tool_args.get('query', ''),
+                        'result': observation,
+                        'step': i
+                    }
+                    
+                    timeline.append({
+                        'type': 'tool_call',
+                        'step': i,
+                        'tool_name': tool_name,
+                        'query': tool_args.get('query', ''),
+                        'result': observation
+                    })
+                    
+                    tools_used.append(tool_usage)
+        
+        # Count available tools
+        tools_available = len(getattr(self.respond_module, 'tools', []))
+        
+        return {
+            'timeline': timeline,
+            'tools_used': tools_used,
+            'reasoning_steps': reasoning_steps,
+            'has_trajectory': True,
+            'tools_available': tools_available
+        }
+
+    def _extract_prediction_metadata(self, prediction) -> Dict[str, Any]:
+        """Extract additional metadata from DSPy Prediction object"""
+        metadata = {}
+        
+        # Extract useful prediction fields
+        for field in ['counter_target', 'counter_type', 'tone', 'stance_strength', 
+                      'novelty_estimate', 'persona_fit_estimate', 'references_used']:
+            if hasattr(prediction, field):
+                metadata[field] = getattr(prediction, field)
+        
+        return metadata if metadata else None
+
+    # -----------------------------------------------------------------------
     # Speaking Phase (expensive, full ReAct)
     # -----------------------------------------------------------------------
 
@@ -299,13 +389,18 @@ class PoliAgent(dspy.Module):
             interventions_remaining=self._get_intervention_context(),
         )
 
-        # Step 1: Generate or refine response - REVERTED TO ORIGINAL
+        # Step 1: Generate or refine response
+        print(f"{self.name} is generating response")
         if self._use_refiner:
             out = self.refine_response(**inputs)
         else:
             out = self.respond_module(**inputs)
 
         draft = out.response
+        
+        # Extract tool usage and metadata from prediction
+        self.last_tool_usage = self._extract_tool_usage_from_prediction(out)
+        self.last_prediction_metadata = self._extract_prediction_metadata(out)
 
         # Step 2: Critique / persona consistency pass
         crit = self.critique(
@@ -318,6 +413,7 @@ class PoliAgent(dspy.Module):
         self.memory.enqueue(final_response)
         self.last_opinion = final_response
         self.interventions_used += 1  # Track that this agent has spoken
+                
         return final_response
 
     # -----------------------------------------------------------------------
@@ -328,7 +424,6 @@ class PoliAgent(dspy.Module):
         """Vote on the motion based on discussion history."""
         context = self.memory.to_text(limit=4)
         
-        # REVERTED: Back to original simple approach
         result = self.vote_module(
             topic=self.topic,
             context=context,

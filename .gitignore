@@ -141,3 +141,6 @@ vite.config.ts.timestamp-*
 # pycache
 __pycache__/
 venv/*
+
+# Google service account keys
+agents-search-engine-1c7071385018.json
